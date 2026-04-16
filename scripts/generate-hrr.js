@@ -3,16 +3,31 @@ import Anthropic from "@anthropic-ai/sdk";
 import { Octokit } from "@octokit/rest";
 
 const TODAY = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/New_York" });
+const DATE_ISO = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
 const SYSTEM_PROMPT = `You are an MLB data analyst. Respond with ONLY a raw JSON object. No words before or after. No markdown. No backticks. Start with { and end with }. Must be parseable by JSON.parse().`;
 
-const USER_PROMPT = `Today is ${TODAY}. Search for tonight's MLB games and return this exact JSON structure: {"date":"YYYY-MM-DD","generatedAt":"ISO timestamp","games":[{"id":1,"time":"7:05 PM","stadium":"Name · City","parkFactor":1.05,"weatherNote":"72F, 8mph out","weatherRisk":false,"away":{"abbr":"NYY","name":"New York Yankees","pitcher":{"name":"Gerrit Cole","hand":"R","era":3.50,"k9":10.2,"xfip":3.40},"lineup":[{"name":"Aaron Judge","pos":"RF","order":1,"bats":"R","ops":0.950,"wrcPlus":165,"hotStreak":false}]},"home":{"abbr":"BOS","name":"Boston Red Sox","pitcher":{"name":"Chris Sale","hand":"L","era":3.20,"k9":9.8,"xfip":3.10},"lineup":[{"name":"Rafael Devers","pos":"3B","order":3,"bats":"L","ops":0.880,"wrcPlus":140,"hotStreak":true}]}}]} Include all evening games not yet started. Include top 8 batters per team. Use real 2026 stats.`;
+const USER_PROMPT = `Today is ${TODAY} (${DATE_ISO}).
+
+Fetch ONLY these two URLs to get today's MLB data:
+1. https://www.rotowire.com/baseball/daily-lineups.php
+2. https://www.rotowire.com/baseball/weather.php
+
+From those pages, extract tonight's games (not yet started) and return this exact JSON:
+{"date":"${DATE_ISO}","generatedAt":"${new Date().toISOString()}","games":[{"id":1,"time":"7:05 PM","stadium":"Yankee Stadium · New York","parkFactor":1.08,"weatherNote":"64F, 10mph out","weatherRisk":false,"away":{"abbr":"LAA","name":"Los Angeles Angels","pitcher":{"name":"Patrick Sandoval","hand":"L","era":4.68,"k9":8.4,"xfip":4.45},"lineup":[{"name":"Mike Trout","pos":"CF","order":1,"bats":"R","ops":0.921,"wrcPlus":150,"hotStreak":false},{"name":"Taylor Ward","pos":"RF","order":2,"bats":"R","ops":0.812,"wrcPlus":121,"hotStreak":false}]},"home":{"abbr":"NYY","name":"New York Yankees","pitcher":{"name":"Max Fried","hand":"L","era":3.41,"k9":9.1,"xfip":3.55},"lineup":[{"name":"Aaron Judge","pos":"RF","order":1,"bats":"R","ops":0.960,"wrcPlus":168,"hotStreak":false},{"name":"Jazz Chisholm","pos":"3B","order":2,"bats":"L","ops":0.889,"wrcPlus":139,"hotStreak":false}]}}]}
+
+Rules:
+- Include top 8 batters per team in lineup order
+- Use real 2026 OPS and wRC+ stats from the pages
+- parkFactor: use 1.00 if unknown
+- hotStreak: true if batter has 5+ game hit streak mentioned on page
+- Only include games starting after current ET time`;
 
 async function fetchWithRetry(client, attempt = 1) {
-  console.log(`[${attempt}/3] Calling Claude API with web search...`);
+  console.log(`[${attempt}/3] Calling Claude API...`);
   const response = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 4000,
+    max_tokens: 3000,
     tools: [{ type: "web_search_20250305", name: "web_search" }],
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: USER_PROMPT }],
@@ -21,8 +36,8 @@ async function fetchWithRetry(client, attempt = 1) {
   const textBlocks = response.content.filter((b) => b.type === "text");
   if (!textBlocks.length) {
     if (attempt < 3) {
-      console.log("No text in response, retrying...");
-      await new Promise((r) => setTimeout(r, 65000));
+      console.log("No text in response, retrying in 70s...");
+      await new Promise((r) => setTimeout(r, 70000));
       return fetchWithRetry(client, attempt + 1);
     }
     throw new Error("No text content returned after 3 attempts");
@@ -35,8 +50,8 @@ async function fetchWithRetry(client, attempt = 1) {
     return JSON.parse(cleaned);
   } catch (e) {
     if (attempt < 3) {
-      console.log(`JSON parse failed (${e.message}), retrying in 5s...`);
-      await new Promise((r) => setTimeout(r, 65000));
+      console.log(`JSON parse failed, retrying in 70s...`);
+      await new Promise((r) => setTimeout(r, 70000));
       return fetchWithRetry(client, attempt + 1);
     }
     throw new Error(`Failed to parse JSON after 3 attempts: ${e.message}\n\nRaw:\n${raw.slice(0, 500)}`);
