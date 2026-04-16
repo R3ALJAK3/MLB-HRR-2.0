@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: "20"
       - name: Install dependencies
-        run: npm install
+        run: rm -rf node_modules && npm install
         working-directory: scripts
 
       - name: Generate HRR data
