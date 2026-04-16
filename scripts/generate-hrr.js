@@ -4,13 +4,9 @@
  * Uses the FREE official MLB Stats API — no web search needed.
  * Claude is only used for HRR scoring, costing ~$0.001 per run.
  *
- * Required env vars:
- *   ANTHROPIC_API_KEY  — your Anthropic API key
- *   GIST_ID            — GitHub Gist ID to update
- *   GITHUB_TOKEN       — GitHub token with gist write scope
+
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import { Octokit } from "@octokit/rest";
 
 const MLB_API = "https://statsapi.mlb.com/api/v1";
