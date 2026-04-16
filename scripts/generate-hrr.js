@@ -155,6 +155,7 @@ function enrichWithProjections(data) {
         batter.tier = hrr >= 3.2 ? "A" : hrr >= 2.5 ? "B" : "C";
         batter.team = team.abbr;
         batter.gameId = game.id;
+        batter.gamePk = game.gamePk;
         batter.gameTime = game.time;
         allPlayers.push(batter);
       });
@@ -249,6 +250,18 @@ async function buildGameData(mlbGames) {
   return games;
 }
 
+async function readExistingGist(octokit, gistId) {
+  try {
+    const res = await octokit.gists.get({ gist_id: gistId });
+    const raw = res.data.files?.["hrr-data.json"]?.content;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Only return if it's from today
+    if (parsed.date === TODAY_ET) return parsed;
+    return null;
+  } catch { return null; }
+}
+
 async function uploadToGist(octokit, gistId, data) {
   console.log("Uploading to Gist...");
   await octokit.gists.update({
@@ -275,9 +288,62 @@ async function main() {
   const data = { date: TODAY_ET, generatedAt: new Date().toISOString(), games };
   const enriched = enrichWithProjections(data);
 
+  // Read existing Gist data to carry forward top10 history
+  console.log("Reading existing Gist data...");
+  const existing = await readExistingGist(octokit, process.env.GIST_ID);
+
+  // Per-player locking: lock each player once their specific game starts
+  const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+
+  // Build fresh top10 map keyed by name_team
+  const freshTop10 = enriched.allPlayers.slice(0, 10);
+  const freshMap = {};
+  freshTop10.forEach(p => freshMap[p.name+"_"+p.team] = p);
+
+  if (existing?.dailyTop10?.length) {
+    // Per-player logic: keep player if their game has started, replace if not
+    const lockedKeys = new Set();
+    const result = existing.dailyTop10.map(ep => {
+      const gameStarted = ep.gamePk && mlbGames.some(g => g.gamePk === ep.gamePk && new Date(g.gameDate) < nowET);
+      if (gameStarted) {
+        lockedKeys.add(ep.name+"_"+ep.team);
+        return ep; // locked — game started
+      }
+      // Game not started — use updated projection for this player if they're still good
+      return freshMap[ep.name+"_"+ep.team] || ep;
+    });
+    // Fill any unlocked slots from fresh top10 if a player was replaced
+    enriched.dailyTop10 = result;
+    const lockedCount = lockedKeys.size;
+    console.log(`Top 10: ${lockedCount} locked (game started), ${10-lockedCount} still flexible`);
+  } else {
+    enriched.dailyTop10 = freshTop10;
+    console.log("Pre-game — setting initial top 10");
+  }
+
+  // Build "consideredToday" — any player who was ever in top10 but isn't now
+  const currentTop10Keys = new Set(enriched.dailyTop10.map(p => p.name + "_" + p.team));
+  const prevConsidered = existing?.consideredToday || [];
+  const prevTop10 = existing?.dailyTop10 || [];
+
+  // Merge: anyone from previous top10 not in current top10
+  const newlyDropped = prevTop10.filter(p => !currentTop10Keys.has(p.name + "_" + p.team));
+  const alreadyConsidered = new Set(prevConsidered.map(p => p.name + "_" + p.team));
+
+  const addToConsidered = newlyDropped.filter(p => !alreadyConsidered.has(p.name + "_" + p.team));
+
+  enriched.consideredToday = [
+    ...prevConsidered,
+    ...addToConsidered.map(p => ({ ...p, droppedAt: new Date().toISOString() }))
+  ];
+
+  if (addToConsidered.length) {
+    console.log(`Added ${addToConsidered.length} player(s) to consideredToday: ${addToConsidered.map(p=>p.name).join(", ")}`);
+  }
+
   await uploadToGist(octokit, process.env.GIST_ID, enriched);
 
-  const topPlayer = enriched.topPlays[0];
+  const topPlayer = enriched.dailyTop10[0];
   console.log(`\nDone! ${enriched.games.length} games · ${enriched.allPlayers.length} players`);
   console.log(`Top play: ${topPlayer?.name} (${topPlayer?.team}) HRR ${topPlayer?.hrr}`);
 }
