@@ -21,9 +21,7 @@ const TODAY = new Date().toLocaleDateString("en-US", {
   timeZone: "America/New_York",
 });
 
-const SYSTEM_PROMPT = `You are a senior MLB sabermetrics analyst and data scientist.
-Your job is to research today's MLB slate and return a SINGLE valid JSON object — no markdown, no explanation, no code fences.
-The JSON must exactly match the schema described. Do not add fields not in the schema.`;
+const SYSTEM_PROMPT = `You are a senior MLB sabermetrics analyst. You must respond with ONLY a raw JSON object. No words before it, no words after it, no markdown, no backticks, no code fences, no explanation. Your entire response must be parseable by JSON.parse(). Start your response with { and end with }.`;
 
 const USER_PROMPT = `Today is ${TODAY}.
 
