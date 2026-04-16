@@ -191,6 +191,8 @@ const $ = id => document.getElementById(id);
 const fmt = (n,d=2) => ((n)||0).toFixed(d);
 const chip = t => `<span class="chip">${t||"?"}</span>`;
 const hot = h => h ? '<span class="htag">HOT</span>' : "";
+const streakTag = t => t==="hot"?'<span class="htag">🔥HOT</span>':t==="warm"?'<span style="font-size:9px;background:rgba(245,158,11,.15);color:var(--amber);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700">WARM</span>':t==="cold"?'<span style="font-size:9px;background:var(--bbg);color:var(--blue);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700">❄COLD</span>':t==="cool"?'<span style="font-size:9px;background:var(--bbg);color:var(--blue);padding:1px 4px;border-radius:3px;margin-left:3px;font-weight:700;font-family:var(--mono)">COOL</span>':"";
+const injTag = i => i ? '<span style="font-size:9px;background:var(--abg);color:var(--amber);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700">⚠DTD</span>' : "";
 const k10tag = k => k > 10 ? '<span class="k10">K10+</span>' : "";
 const handTag = h => h==="L" ? '<span class="hand-l">LHP</span>' : '<span class="hand-r">RHP</span>';
 
@@ -354,7 +356,7 @@ function renderTop() {
   // Desktop table
   h += `<div class="tw" style="margin-bottom:.5rem"><table class="desktop-tbl"><thead><tr>
     <th>#</th><th>Player</th><th>Team</th><th>Pos</th><th>Ord</th><th>Opp SP</th><th>Hand</th>
-    <th>OPS</th><th>wRC+</th><th>H</th><th>R</th><th>RBI</th><th>Proj HRR</th><th>Actual</th><th>Result</th>
+    <th>AVG</th><th>L10</th><th>OPS</th><th>wRC+</th><th>Barrel%</th><th>H</th><th>R</th><th>RBI</th><th>Proj HRR</th><th>Actual</th><th>Result</th>
   </tr></thead><tbody>`;
 
   top10.forEach((p,i) => {
@@ -382,14 +384,17 @@ function renderTop() {
 
     h += `<tr style="${rowBg}">
       <td class="n" style="color:var(--dim)">${i+1}</td>
-      <td style="font-weight:${p.tier==="A"?700:400}">${p.name}${hot(p.hotStreak)}</td>
+      <td style="font-weight:${p.tier==="A"?700:400}">${p.name}${streakTag(p.streakType)}${injTag(p.injured)}</td>
       <td>${chip(p.team)}</td>
       <td style="color:var(--muted);font-size:12px">${p.pos}</td>
       <td class="n" style="text-align:center;color:var(--muted)">${p.order}</td>
       <td style="font-size:12px;color:var(--muted)">${sp?sp.name:"—"}</td>
       <td>${sp?handTag(sp.hand):""}</td>
+      <td class="n">${p.avg?(p.avg*1000|0)/1000:"—"}</td>
+      <td class="n" style="color:${p.streakType==='hot'?'var(--green)':p.streakType==='cold'?'var(--blue)':'var(--muted)'}">${p.last10Avg?(p.last10Avg*1000|0)/1000:"—"}</td>
       <td class="n">${(p.ops||0).toFixed(3)}</td>
       <td class="n">${p.wrcPlus||"—"}</td>
+      <td class="n">${p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}</td>
       <td class="n" style="color:var(--green)">${fmt(bd.h)}</td>
       <td class="n" style="color:var(--blue)">${fmt(bd.r)}</td>
       <td class="n" style="color:var(--amber)">${fmt(bd.rbi)}</td>
@@ -607,7 +612,8 @@ function applyFilters() {
   const cols=[
     {k:"name",l:"Player"},{k:"team",l:"Team"},{k:"pos",l:"Pos"},{k:"order",l:"Ord"},
     {k:"bats",l:"B"},{k:"oppSP",l:"Opp SP"},{k:"spHand",l:"Hand"},
-    {k:"ops",l:"OPS"},{k:"wrcPlus",l:"wRC+"},
+    {k:"avg",l:"AVG"},{k:"last10Avg",l:"L10 AVG"},{k:"ops",l:"OPS"},{k:"wrcPlus",l:"wRC+"},
+    {k:"barrelPct",l:"Barrel%"},{k:"hardHitPct",l:"HardHit%"},
     {k:"hProj",l:"H Proj"},{k:"rProj",l:"R Proj"},{k:"rbiProj",l:"RBI Proj"},
     {k:"hrr",l:"HRR"},{k:"tier",l:"Tier"}
   ];
@@ -620,15 +626,19 @@ function applyFilters() {
   h+="</tr></thead><tbody>";
   all.forEach(p=>{
     h+=`<tr>
-      <td style="font-weight:${p.tier==="A"?700:400}">${p.name}${hot(p.hotStreak)}</td>
+      <td style="font-weight:${p.tier==="A"?700:400}">${p.name}${streakTag(p.streakType)}${injTag(p.injured)}</td>
       <td>${chip(p.team)}</td>
       <td style="color:var(--muted);font-size:12px">${p.pos}</td>
       <td class="n" style="text-align:center">${p.order}</td>
       <td class="n" style="text-align:center">${p.bats}</td>
       <td style="font-size:12px;color:var(--muted)">${p.oppSP||"—"}</td>
       <td>${p.spHand?handTag(p.spHand):""}</td>
+      <td class="n">${p.avg?(p.avg*1000|0)/1000:"—"}</td>
+      <td class="n" style="color:${p.streakType==='hot'?'var(--green)':p.streakType==='cold'?'var(--blue)':'var(--muted)'}">${p.last10Avg?(p.last10Avg*1000|0)/1000:"—"}</td>
       <td class="n">${(p.ops||0).toFixed(3)}</td>
       <td class="n">${p.wrcPlus||"—"}</td>
+      <td class="n">${p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}</td>
+      <td class="n">${p.hardHitPct!=null?p.hardHitPct.toFixed(1)+"%":"—"}</td>
       <td class="n" style="color:var(--green)">${fmt(p.hProj)}</td>
       <td class="n" style="color:var(--blue)">${fmt(p.rProj)}</td>
       <td class="n" style="color:var(--amber)">${fmt(p.rbiProj)}</td>
@@ -657,7 +667,7 @@ function renderStacks() {
         return `<span style="color:${c}">${p.name} <span class="n" style="font-size:11px;color:var(--muted)">${fmt(p.hrr)}</span></span>`;
       }).join('<span style="color:var(--dim);margin:0 3px">+</span>');
       h+=`<div class="scard"><span class="srank">${i+1}</span>
-        <div style="min-width:65px">${chip(s.team)}<div style="font-size:10px;color:var(--dim);margin-top:2px">vs ${s.opp} · ${s.time}</div></div>
+        <div style="min-width:65px">${chip(s.team)}<div style="font-size:10px;color:var(--dim);margin-top:2px">vs ${s.opp} · ${s.time}${s.impliedRuns?' · <span style="color:var(--amber)">'+s.impliedRuns.toFixed(1)+' impl</span>':""}</div></div>
         <div class="splayers">${pl}</div>
         <div class="stot">${(s.total||0).toFixed(2)}</div></div>`;
     });
