@@ -1,15 +1,13 @@
 {
   "name": "mlb-hrr-generator",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "type": "module",
-  "description": "Daily MLB HRR projection generator powered by Claude",
+  "description": "Daily MLB HRR projection generator using free MLB Stats API",
   "main": "generate-hrr.js",
   "scripts": {
-    "generate": "node generate-hrr.js",
-    "test": "node generate-hrr.js"
+    "generate": "node generate-hrr.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.51.0",
     "@octokit/rest": "^21.0.0"
   }
 }
