@@ -269,7 +269,8 @@ async function fetchLive() {
     $("lct").textContent = lc>0?lc+" LIVE":fc>0?fc+" final":"—";
     $("rct").textContent = fc||"—";
     renderLive();
-    if (fc>0) renderResults();
+    if (fc>0) { renderResults(); loadTop10Results(); }
+    else if (Object.values(LIVE).some(g=>g.status?.abstractGameState==="Live")) renderTop();
   } catch(e) { console.log("Live:",e.message); }
 }
 function pollLive() {
@@ -288,36 +289,98 @@ function renderAll() {
   $("tabs").style.display="flex";
   setLoad(false);
   renderTop(); renderSlate(); renderAll2(); renderStacks();
+  if (Object.keys(TOP10_RESULTS).length > 0) renderTop(); // re-render with cached results
 }
 
-// ── TOP PLAYS — top 10 upcoming, or NONE ─────────────
+// ── TOP PLAYS — fixed 10 for the day with result overlay ─────
+let TOP10_RESULTS = {}; // cache of actual results keyed by playerName+team
+
+async function loadTop10Results() {
+  const top10 = DATA.dailyTop10 || DATA.topPlays?.slice(0,10) || [];
+  if (!top10.length) return;
+  // Find gamePks for top10 players' games
+  const gamePkMap = {};
+  top10.forEach(p => {
+    const gm = DATA.games?.find(g => g.id === p.gameId);
+    if (gm?.gamePk) gamePkMap[gm.gamePk] = true;
+  });
+  // Check which are final in LIVE data
+  const finalPks = Object.keys(gamePkMap).filter(pk => LIVE[pk]?.status?.abstractGameState === "Final");
+  for (const pk of finalPks) {
+    try {
+      const r = await fetch(`${MLBAPI}/game/${pk}/boxscore`);
+      const bs = await r.json();
+      for (const side of ["away","home"]) {
+        const td = bs.teams?.[side]; if (!td) continue;
+        const abbr = td.team?.abbreviation;
+        for (const p of Object.values(td.players||{})) {
+          const s = p.stats?.batting; if (!s || (s.atBats||0)===0) continue;
+          const key = (p.person?.fullName||"")+"_"+abbr;
+          TOP10_RESULTS[key] = {
+            h: parseInt(s.hits||0),
+            r: parseInt(s.runs||0),
+            rbi: parseInt(s.rbi||0),
+            actual: parseInt(s.hits||0)+parseInt(s.runs||0)+parseInt(s.rbi||0)
+          };
+        }
+      }
+    } catch(e) { console.log("Top10 boxscore err:", pk, e.message); }
+  }
+  renderTop();
+}
+
 function renderTop() {
-  const uid = upIds();
-  const up = (DATA.allPlayers||[]).filter(p=>uid.has(p.gameId));
-  const top = [...up].sort((a,b)=>b.hrr-a.hrr).slice(0,10);
-  const cA = up.filter(p=>p.tier==="A").length;
-  const cB = up.filter(p=>p.tier==="B").length;
+  const top10 = DATA.dailyTop10 || (DATA.allPlayers||[]).slice(0,10);
+  const cA = top10.filter(p=>p.tier==="A").length;
+  const cB = top10.filter(p=>p.tier==="B").length;
+  const done = top10.filter(p => {
+    const gm = DATA.games?.find(g=>g.id===p.gameId);
+    return gm?.gamePk && LIVE[gm.gamePk]?.status?.abstractGameState === "Final";
+  }).length;
 
   let h = `<div class="sg">
-    <div class="sc"><div class="l">Players Left</div><div class="v">${up.length}</div></div>
+    <div class="sc"><div class="l">Today's Picks</div><div class="v">10</div></div>
     <div class="sc"><div class="l">Tier A</div><div class="v" style="color:var(--green)">${cA}</div></div>
     <div class="sc"><div class="l">Tier B</div><div class="v" style="color:var(--amber)">${cB}</div></div>
-    <div class="sc"><div class="l">Top HRR</div><div class="v">${fmt(top[0]?.hrr)}</div></div>
-    <div class="sc"><div class="l">Games Left</div><div class="v">${upGames().length}</div></div>
+    <div class="sc"><div class="l">Completed</div><div class="v" style="color:${done===10?"var(--green)":done>0?"var(--amber)":"var(--muted)"}">${done}/10</div></div>
+    <div class="sc"><div class="l">Top HRR</div><div class="v">${fmt(top10[0]?.hrr)}</div></div>
   </div>`;
 
-  if (!top.length) {
-    h += `<div class="none-state"><div class="icon">⚾</div><div class="msg">No remaining plays today.<br>Check Live Scores or Results.</div></div>`;
+  if (!top10.length) {
+    h += `<div class="none-state"><div class="icon">⚾</div><div class="msg">No plays loaded yet.<br>Run the workflow to generate today's picks.</div></div>`;
     $("p-top").innerHTML=h; return;
   }
 
   // Desktop table
-  h += '<div class="tw" style="margin-bottom:.5rem"><table class="desktop-tbl"><thead><tr><th>#</th><th>Player</th><th>Team</th><th>Pos</th><th>Ord</th><th>Opp SP</th><th>Hand</th><th>OPS</th><th>wRC+</th><th>H</th><th>R</th><th>RBI</th><th>HRR</th><th>Tier</th></tr></thead><tbody>';
-  top.forEach((p,i) => {
+  h += `<div class="tw" style="margin-bottom:.5rem"><table class="desktop-tbl"><thead><tr>
+    <th>#</th><th>Player</th><th>Team</th><th>Pos</th><th>Ord</th><th>Opp SP</th><th>Hand</th>
+    <th>OPS</th><th>wRC+</th><th>H</th><th>R</th><th>RBI</th><th>Proj HRR</th><th>Actual</th><th>Result</th>
+  </tr></thead><tbody>`;
+
+  top10.forEach((p,i) => {
     const gm = DATA.games?.find(g=>g.id===p.gameId);
-    const sp = gm?(p.team===gm.home.abbr?gm.away.pitcher:gm.home.pitcher):null;
+    const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
     const bd = breakdown(p.hrr, p.order);
-    h += `<tr>
+    const key = p.name+"_"+p.team;
+    const res = TOP10_RESULTS[key];
+    const isFinal = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Final";
+    const isLive  = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Live";
+
+    let resultCell = "—";
+    let rowBg = "";
+    if (isFinal && res) {
+      const hit = res.actual >= Math.round(p.hrr);
+      resultCell = hit
+        ? `<span style="color:var(--green);font-weight:700">✓ ${res.actual} HRR</span>`
+        : `<span style="color:var(--red);font-weight:700">✗ ${res.actual} HRR</span>`;
+      rowBg = hit
+        ? "background:rgba(34,197,94,.07);"
+        : "background:rgba(248,113,113,.07);";
+    } else if (isLive) {
+      resultCell = `<span style="color:var(--green);font-size:10px;font-weight:700">● LIVE</span>`;
+    }
+
+    h += `<tr style="${rowBg}">
       <td class="n" style="color:var(--dim)">${i+1}</td>
       <td style="font-weight:${p.tier==="A"?700:400}">${p.name}${hot(p.hotStreak)}</td>
       <td>${chip(p.team)}</td>
@@ -330,34 +393,94 @@ function renderTop() {
       <td class="n" style="color:var(--green)">${fmt(bd.h)}</td>
       <td class="n" style="color:var(--blue)">${fmt(bd.r)}</td>
       <td class="n" style="color:var(--amber)">${fmt(bd.rbi)}</td>
-      <td class="n" style="font-size:15px;font-weight:700">${fmt(p.hrr)}</td>
-      <td>${tierB(p.tier)}</td>
+      <td class="n" style="font-size:14px;font-weight:700">${fmt(p.hrr)} <span style="font-size:10px;color:var(--muted)">(${Math.round(p.hrr)})</span></td>
+      <td class="n">${isFinal&&res?res.actual:"—"}</td>
+      <td>${resultCell}</td>
     </tr>`;
   });
   h += '</tbody></table></div>';
 
   // Mobile cards
   h += '<div class="mobile-cards">';
-  top.forEach((p,i) => {
+  top10.forEach((p,i) => {
     const gm = DATA.games?.find(g=>g.id===p.gameId);
-    const sp = gm?(p.team===gm.home.abbr?gm.away.pitcher:gm.home.pitcher):null;
+    const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
     const bd = breakdown(p.hrr, p.order);
-    const hc = p.tier==="A"?"var(--green)":p.tier==="B"?"var(--amber)":"var(--muted)";
-    h += `<div class="tp-card">
+    const key = p.name+"_"+p.team;
+    const res = TOP10_RESULTS[key];
+    const isFinal = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Final";
+    const isLive  = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Live";
+    let cardBorder = "var(--border)";
+    let hrrDisplay = fmt(p.hrr);
+    let resultLine = "";
+    if (isFinal && res) {
+      const hit = res.actual >= Math.round(p.hrr);
+      cardBorder = hit ? "rgba(34,197,94,.5)" : "rgba(248,113,113,.5)";
+      resultLine = `<div style="font-size:11px;font-weight:700;margin-top:3px;color:${hit?"var(--green)":"var(--red)"}">${hit?"✓":"✗"} Actual: ${res.actual} HRR (proj: ${Math.round(p.hrr)})</div>`;
+    } else if (isLive) {
+      cardBorder = "rgba(34,197,94,.4)";
+      resultLine = `<div style="font-size:10px;color:var(--green);margin-top:3px;font-weight:700">● LIVE</div>`;
+    }
+    const hrrColor = p.tier==="A"?"var(--green)":p.tier==="B"?"var(--amber)":"var(--muted)";
+    h += `<div class="tp-card" style="border-color:${cardBorder}">
       <div class="tp-rank">${i+1}</div>
       <div class="tp-info">
         <div class="tp-name">${p.name}${hot(p.hotStreak)}</div>
         <div class="tp-meta">${chip(p.team)} ${p.pos} · #${p.order} · vs ${sp?sp.name+" "+handTag(sp.hand):"?"}</div>
+        ${resultLine}
       </div>
       <div class="tp-right">
-        <div class="tp-hrr" style="color:${hc}">${fmt(p.hrr)}</div>
+        <div class="tp-hrr" style="color:${hrrColor}">${hrrDisplay}</div>
         <div class="tp-breakdown">H${fmt(bd.h)} R${fmt(bd.r)} RBI${fmt(bd.rbi)}</div>
         <div style="margin-top:2px">${tierB(p.tier)}</div>
       </div>
     </div>`;
   });
   h += '</div>';
-  h += '<div class="note">Top 10 upcoming plays · H/R/RBI are model projections · Tier A ≥ 3.20 · Tier B 2.50–3.19</div>';
+  h += '<div class="note">Fixed top 10 picks for today · Green = actual HRR ≥ projected (rounded) · Red = below projected</div>';
+
+  // Previously Considered section
+  const considered = DATA.consideredToday || [];
+  if (considered.length) {
+    h += `<div style="margin-top:1.5rem">
+      <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;background:var(--abg);color:var(--amber);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-weight:700">PREVIOUSLY CONSIDERED</span>
+        <span style="font-size:11px;color:var(--dim)">These players were in the top 10 earlier today before being replaced</span>
+      </div>`;
+    h += '<div class="tw"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th>Pos</th><th>Opp SP</th><th>Hand</th><th>Proj HRR</th><th>Actual</th><th>Result</th></tr></thead><tbody>';
+    considered.forEach((p, i) => {
+      const gm = DATA.games?.find(g=>g.id===p.gameId);
+      const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
+      const key = p.name+"_"+p.team;
+      const res = TOP10_RESULTS[key];
+      const isFinal = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Final";
+      const isLive  = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Live";
+      let resultCell = "—";
+      let rowBg = "";
+      if (isFinal && res) {
+        const hit = res.actual >= Math.round(p.hrr);
+        resultCell = hit
+          ? `<span style="color:var(--green);font-weight:700">✓ ${res.actual}</span>`
+          : `<span style="color:var(--red);font-weight:700">✗ ${res.actual}</span>`;
+        rowBg = hit ? "background:rgba(34,197,94,.05);" : "background:rgba(248,113,113,.05);";
+      } else if (isLive) {
+        resultCell = `<span style="color:var(--green);font-size:10px;font-weight:700">● LIVE</span>`;
+      }
+      h += `<tr style="${rowBg};opacity:.8">
+        <td class="n" style="color:var(--dim)">${i+1}</td>
+        <td style="color:var(--muted)">${p.name}${hot(p.hotStreak)}</td>
+        <td>${chip(p.team)}</td>
+        <td style="color:var(--muted);font-size:12px">${p.pos}</td>
+        <td style="font-size:12px;color:var(--muted)">${sp?sp.name:"—"}</td>
+        <td>${sp?handTag(sp.hand):""}</td>
+        <td class="n" style="color:var(--muted)">${fmt(p.hrr)} <span style="font-size:10px;color:var(--dim)">(${Math.round(p.hrr)})</span></td>
+        <td class="n">${isFinal&&res?res.actual:"—"}</td>
+        <td>${resultCell}</td>
+      </tr>`;
+    });
+    h += '</tbody></table></div></div>';
+  }
+
   $("p-top").innerHTML = h;
 }
 
@@ -410,25 +533,31 @@ function renderSlate() {
 function renderAll2() {
   const teams = [...new Set((DATA.allPlayers||[]).map(p=>p.team))].sort();
   const positions = [...new Set((DATA.allPlayers||[]).map(p=>p.pos))].sort();
-
   let fh = `<div class="fbar">
-    <label>Team</label>
+    <input type="text" id="f-search" placeholder="Search player..." style="width:140px" oninput="applyFilters()">
     <select id="f-team" onchange="applyFilters()">
-      <option value="">All</option>
+      <option value="">All Teams</option>
       ${teams.map(t=>`<option>${t}</option>`).join("")}
     </select>
-    <label>Tier</label>
     <select id="f-tier" onchange="applyFilters()">
-      <option value="">All</option>
+      <option value="">All Tiers</option>
       <option>A</option><option>B</option><option>C</option>
     </select>
-    <label>Pos</label>
     <select id="f-pos" onchange="applyFilters()">
-      <option value="">All</option>
+      <option value="">All Pos</option>
       ${positions.map(p=>`<option>${p}</option>`).join("")}
     </select>
-    <label>Upcoming only</label>
-    <input type="checkbox" id="f-upcoming" checked onchange="applyFilters()">
+    <select id="f-hand" onchange="applyFilters()">
+      <option value="">Any Hand</option>
+      <option value="R">vs RHP</option>
+      <option value="L">vs LHP</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)">
+      <input type="checkbox" id="f-upcoming" checked onchange="applyFilters()"> Upcoming only
+    </label>
+    <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)">Min HRR
+      <input type="number" id="f-minhrr" value="0" min="0" max="5" step="0.1" style="width:52px" oninput="applyFilters()">
+    </label>
     <button class="btn btn-sm" onclick="exportCSV()">Export CSV</button>
   </div>
   <div id="all-table"></div>`;
@@ -437,16 +566,28 @@ function renderAll2() {
 }
 
 function applyFilters() {
-  const team = $("f-team")?.value||"";
-  const tier = $("f-tier")?.value||"";
-  const pos  = $("f-pos")?.value||"";
+  const search = ($("f-search")?.value||"").toLowerCase();
+  const team   = $("f-team")?.value||"";
+  const tier   = $("f-tier")?.value||"";
+  const pos    = $("f-pos")?.value||"";
+  const hand   = $("f-hand")?.value||"";
   const upOnly = $("f-upcoming")?.checked !== false;
+  const minHRR = parseFloat($("f-minhrr")?.value||0);
   const uid = upIds();
   let all = [...(DATA?.allPlayers||[])];
   if (upOnly) all = all.filter(p=>uid.has(p.gameId));
-  if (team) all = all.filter(p=>p.team===team);
-  if (tier) all = all.filter(p=>p.tier===tier);
-  if (pos)  all = all.filter(p=>p.pos===pos);
+  if (search) all = all.filter(p=>p.name.toLowerCase().includes(search)||(p.team||"").toLowerCase().includes(search));
+  if (team)   all = all.filter(p=>p.team===team);
+  if (tier)   all = all.filter(p=>p.tier===tier);
+  if (pos)    all = all.filter(p=>p.pos===pos);
+  if (minHRR) all = all.filter(p=>p.hrr>=minHRR);
+  if (hand) {
+    all = all.filter(p => {
+      const gm = DATA.games?.find(g=>g.id===p.gameId);
+      const sp = gm?(p.team===gm.home.abbr?gm.away.pitcher:gm.home.pitcher):null;
+      return sp?.hand === hand;
+    });
+  }
   all.sort((a,b)=>{
     const av=a[SK],bv=b[SK];
     return typeof av==="string"?av.localeCompare(bv)*SD:((bv||0)-(av||0))*-SD;
@@ -520,8 +661,10 @@ function renderStacks() {
 function renderLive() {
   const games = Object.values(LIVE);
   if (!games.length) { $("p-live").innerHTML='<p style="color:var(--muted);padding:1rem">Checking scores... updates every 60s.</p>'; return; }
-  const live=games.filter(g=>g.status?.abstractGameState==="Live");
-  const pre=games.filter(g=>g.status?.abstractGameState==="Preview");
+  const live=games.filter(g=>g.status?.abstractGameState==="Live" && !g.status?.detailedState?.toLowerCase().includes("delay") && !g.status?.detailedState?.toLowerCase().includes("suspend"));
+  const delayed=games.filter(g=>{const d=g.status?.detailedState?.toLowerCase()||""; return d.includes("delay")||d.includes("suspend");});
+  const postponed=games.filter(g=>(g.status?.detailedState||"").toLowerCase().includes("postpone"));
+  const pre=games.filter(g=>g.status?.abstractGameState==="Preview"&&!(g.status?.detailedState||"").toLowerCase().includes("postpone"));
   const fin=games.filter(g=>g.status?.abstractGameState==="Final");
   let h="";
   const sec=(list,label,col)=>{
@@ -529,6 +672,8 @@ function renderLive() {
     return `<div style="font-size:12px;font-weight:600;margin:${h?"1rem":0} 0 8px;color:${col}">${label}</div>`+list.map(liveCard).join("");
   };
   h+=sec(live,"⬤ In Progress","var(--green)");
+  h+=sec(delayed,"⚠ Delayed / Suspended","var(--amber)");
+  h+=sec(postponed,"✕ Postponed","var(--red)");
   h+=sec(pre,"Upcoming","var(--muted)");
   h+=sec(fin,"Final","var(--muted)");
   $("p-live").innerHTML=h;
@@ -536,6 +681,7 @@ function renderLive() {
 
 function liveCard(g) {
   const st=g.status?.abstractGameState;
+  const det=g.status?.detailedState||"";
   const aa=g.teams?.away?.team?.abbreviation||g.teams?.away?.team?.teamCode||"?";
   const ha=g.teams?.home?.team?.abbreviation||g.teams?.home?.team?.teamCode||"?";
   const an=g.teams?.away?.team?.shortName||g.teams?.away?.team?.name||"";
@@ -543,8 +689,17 @@ function liveCard(g) {
   const ls=g.linescore;
   const ar=g.teams?.away?.score??ls?.teams?.away?.runs??"—";
   const hr=g.teams?.home?.score??ls?.teams?.home?.runs??"—";
-  const stxt=st==="Live"?(ls?.currentInningOrdinal||"")+" "+(ls?.inningHalf==="Top"?"▲":"▼"):st==="Final"?"Final":new Date(g.gameDate).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZone:"America/New_York"});
-  const scls=st==="Live"?"sl":st==="Final"?"sf":"sp2";
+  // Handle special states
+  const isDelayed = det.toLowerCase().includes("delay");
+  const isSuspended = det.toLowerCase().includes("suspend");
+  const isPostponed = det.toLowerCase().includes("postpone");
+  let stxt, scls;
+  if (isPostponed) { stxt="Postponed"; scls="sp2"; }
+  else if (isSuspended) { stxt="Suspended"; scls="sp2"; }
+  else if (isDelayed) { stxt="⚠ "+det; scls="sp2"; }
+  else if (st==="Live") { stxt=(ls?.currentInningOrdinal||"")+" "+(ls?.inningHalf==="Top"?"▲":"▼"); scls="sl"; }
+  else if (st==="Final") { stxt="Final"; scls="sf"; }
+  else { stxt=new Date(g.gameDate).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZone:"America/New_York"}); scls="sp2"; }
   let hre="";
   if(ls&&st!=="Preview"){
     const ah=ls.teams?.away?.hits||0,hh=ls.teams?.home?.hits||0;
@@ -578,7 +733,12 @@ async function renderResults() {
           if((s.atBats||0)===0)continue;
           const hits=parseInt(s.hits||0),runs=parseInt(s.runs||0),rbi=parseInt(s.rbi||0);
           const actual=hits+runs+rbi;
-          const proj=DATA?.allPlayers?.find(pl=>pl.name===p.person?.fullName&&pl.team===abbr);
+          // Try exact match first, then name-only match (handles accent differences)
+          const fullName = p.person?.fullName||"";
+          const normName = n => n.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+          let proj=DATA?.allPlayers?.find(pl=>pl.name===fullName&&pl.team===abbr);
+          if(!proj) proj=DATA?.allPlayers?.find(pl=>normName(pl.name)===normName(fullName)&&pl.team===abbr);
+          if(!proj) proj=DATA?.allPlayers?.find(pl=>normName(pl.name)===normName(fullName));
           rows.push({name:p.person?.fullName||"?",abbr,hits,runs,rbi,actual,proj:proj?.hrr??null});
         }
       }
