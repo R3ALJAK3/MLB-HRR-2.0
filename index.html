@@ -154,7 +154,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
   </div>
 </div>
 
-<div class="config" id="config-bar">
+<div class="config" id="config-bar" style="display:none">
   <div>
     <label>Gist raw URL — paste once, saved automatically</label>
     <input type="url" id="gist-url" placeholder="https://gist.githubusercontent.com/USERNAME/GIST_ID/raw/hrr-data.json" />
@@ -192,10 +192,11 @@ const STORAGE_KEY = "mlb-hrr-gist-url-v2";
 let DATA = null, LIVE_DATA = {}, SORT_KEY = "hrr", SORT_DIR = -1;
 let liveInterval = null;
 
+const DEFAULT_GIST = "https://gist.githubusercontent.com/R3ALJAK3/2b4a2e18268a955fd76247ca91156f94/raw/hrr-data.json";
 window.addEventListener("DOMContentLoaded", () => {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) { document.getElementById("gist-url").value = saved; fetchProjections(saved); }
-  else { document.getElementById("loading-msg").textContent = "Paste your Gist URL above to load today's projections."; }
+  const saved = localStorage.getItem(STORAGE_KEY) || DEFAULT_GIST;
+  document.getElementById("gist-url").value = saved;
+  fetchProjections(saved);
   document.getElementById("tabs").addEventListener("click", e => {
     const btn = e.target.closest(".tab"); if (!btn) return;
     document.querySelectorAll(".tab").forEach(t => t.classList.remove("on"));
