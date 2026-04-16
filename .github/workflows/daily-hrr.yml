@@ -3,7 +3,12 @@ name: MLB HRR Daily Update
 on:
   schedule:
     # 10:00 AM ET = 14:00 UTC (adjusts automatically for DST)
-    - cron: "0 14 * * *"
+    - cron: "0 09 * * *"
+    - cron: "0 11 * * *"
+    - cron: "0 13 * * *"
+    - cron: "0 15 * * *"
+    - cron: "0 17 * * *"
+    - cron: "0 19 * * *"
 
   # Allow manual trigger from GitHub UI
   workflow_dispatch:
