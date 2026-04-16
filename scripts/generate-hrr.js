@@ -7,21 +7,7 @@ const DATE_ISO = new Date().toLocaleDateString("en-CA", { timeZone: "America/New
 
 const SYSTEM_PROMPT = `You are an MLB data analyst. Respond with ONLY a raw JSON object. No words before or after. No markdown. No backticks. Start with { and end with }. Must be parseable by JSON.parse().`;
 
-const USER_PROMPT = `Today is ${TODAY} (${DATE_ISO}).
-
-Fetch ONLY these two URLs to get today's MLB data:
-1. https://www.rotowire.com/baseball/daily-lineups.php
-2. https://www.rotowire.com/baseball/weather.php
-
-From those pages, extract tonight's games (not yet started) and return this exact JSON:
-{"date":"${DATE_ISO}","generatedAt":"${new Date().toISOString()}","games":[{"id":1,"time":"7:05 PM","stadium":"Yankee Stadium · New York","parkFactor":1.08,"weatherNote":"64F, 10mph out","weatherRisk":false,"away":{"abbr":"LAA","name":"Los Angeles Angels","pitcher":{"name":"Patrick Sandoval","hand":"L","era":4.68,"k9":8.4,"xfip":4.45},"lineup":[{"name":"Mike Trout","pos":"CF","order":1,"bats":"R","ops":0.921,"wrcPlus":150,"hotStreak":false},{"name":"Taylor Ward","pos":"RF","order":2,"bats":"R","ops":0.812,"wrcPlus":121,"hotStreak":false}]},"home":{"abbr":"NYY","name":"New York Yankees","pitcher":{"name":"Max Fried","hand":"L","era":3.41,"k9":9.1,"xfip":3.55},"lineup":[{"name":"Aaron Judge","pos":"RF","order":1,"bats":"R","ops":0.960,"wrcPlus":168,"hotStreak":false},{"name":"Jazz Chisholm","pos":"3B","order":2,"bats":"L","ops":0.889,"wrcPlus":139,"hotStreak":false}]}}]}
-
-Rules:
-- Include top 8 batters per team in lineup order
-- Use real 2026 OPS and wRC+ stats from the pages
-- parkFactor: use 1.00 if unknown
-- hotStreak: true if batter has 5+ game hit streak mentioned on page
-- Only include games starting after current ET time`;
+const USER_PROMPT = `Today is ${TODAY} (${DATE_ISO}). Search for "MLB lineups today ${DATE_ISO}" and return ONLY this JSON with real data. No explanations. {"date":"${DATE_ISO}","generatedAt":"${new Date().toISOString()}","games":[{"id":1,"time":"7:05 PM","stadium":"Ballpark · City","parkFactor":1.05,"weatherNote":"72F calm","weatherRisk":false,"away":{"abbr":"TEX","name":"Texas Rangers","pitcher":{"name":"Nathan Eovaldi","hand":"R","era":3.80,"k9":8.5,"xfip":3.70},"lineup":[{"name":"Marcus Semien","pos":"2B","order":1,"bats":"R","ops":0.841,"wrcPlus":128,"hotStreak":false}]},"home":{"abbr":"ATH","name":"Athletics","pitcher":{"name":"JT Ginn","hand":"R","era":4.28,"k9":8.8,"xfip":4.12},"lineup":[{"name":"Brent Rooker","pos":"DH","order":2,"bats":"R","ops":0.871,"wrcPlus":136,"hotStreak":false}]}}]}`;;
 
 async function fetchWithRetry(client, attempt = 1) {
   console.log(`[${attempt}/3] Calling Claude API...`);
