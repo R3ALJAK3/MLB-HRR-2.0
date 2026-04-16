@@ -84,7 +84,7 @@ async function fetchWithRetry(client, attempt = 1) {
   console.log(`[${attempt}/3] Calling Claude API with web search...`);
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-5",
     max_tokens: 8000,
     tools: [{ type: "web_search_20250305", name: "web_search" }],
     system: SYSTEM_PROMPT,
