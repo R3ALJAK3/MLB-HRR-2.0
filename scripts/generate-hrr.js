@@ -704,4 +704,4 @@ async function main() {
   console.log(`Top play: ${top?.name} (${top?.team}) HRR ${top?.hrr}`);
 }
 
-main().catch(err => { console.error("Fatal:", err.message); process.exit(1); });p
+main().catch(err => { console.error("Fatal:", err.message); process.exit(1); });
