@@ -11,7 +11,7 @@ const USER_PROMPT = `Today is ${TODAY}. Search for tonight's MLB games and retur
 async function fetchWithRetry(client, attempt = 1) {
   console.log(`[${attempt}/3] Calling Claude API with web search...`);
   const response = await client.messages.create({
-    model: "claude-sonnet-4-5",
+    model: "claude-haiku-4-5-20251001",
     max_tokens: 4000,
     tools: [{ type: "web_search_20250305", name: "web_search" }],
     system: SYSTEM_PROMPT,
@@ -22,7 +22,7 @@ async function fetchWithRetry(client, attempt = 1) {
   if (!textBlocks.length) {
     if (attempt < 3) {
       console.log("No text in response, retrying...");
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 65000));
       return fetchWithRetry(client, attempt + 1);
     }
     throw new Error("No text content returned after 3 attempts");
@@ -36,7 +36,7 @@ async function fetchWithRetry(client, attempt = 1) {
   } catch (e) {
     if (attempt < 3) {
       console.log(`JSON parse failed (${e.message}), retrying in 5s...`);
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 65000));
       return fetchWithRetry(client, attempt + 1);
     }
     throw new Error(`Failed to parse JSON after 3 attempts: ${e.message}\n\nRaw:\n${raw.slice(0, 500)}`);
