@@ -126,6 +126,18 @@ tr:hover td{background:rgba(255,255,255,.02)}
   .stack-card{flex-direction:column;align-items:flex-start}
   .stack-total{margin-left:0}
 }
+
+/* Mobile Top Plays cards */
+.tp-cards{display:none}
+.tp-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:.75rem;margin-bottom:6px;display:flex;align-items:center;gap:.75rem}
+.tp-rank{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:18px;text-align:center}
+.tp-info{flex:1;min-width:0}
+.tp-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tp-meta{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tp-right{text-align:right;flex-shrink:0}
+.tp-hrr{font-size:18px;font-weight:700;font-family:var(--mono)}
+.tp-tier{margin-top:2px}
+@media(max-width:640px){.tp-table{display:none}.tp-cards{display:block}}
 @media(max-width:380px){
   .stats-grid{grid-template-columns:repeat(2,1fr)}
   .stat-val{font-size:18px}
@@ -275,7 +287,7 @@ function renderTop() {
     <div class="stat-card"><div class="stat-lbl">Games Left</div><div class="stat-val">${upcomingGames().length}</div></div>
   </div>`;
   if (!top15.length) { h += '<p style="color:var(--muted);padding:1rem">All games started — check Live Scores.</p>'; $("p-top").innerHTML=h; return; }
-  h += '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th>Pos</th><th>Ord</th><th>Opp SP</th><th>OPS</th><th>wRC+</th><th>HRR</th><th>Tier</th></tr></thead><tbody>';
+  h += '<div class="tbl-wrap tp-table"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th>Pos</th><th>Ord</th><th>Opp SP</th><th>OPS</th><th>wRC+</th><th>HRR</th><th>Tier</th></tr></thead><tbody>';
   top15.forEach((p,i) => {
     const gm = DATA.games?.find(g=>g.id===p.gameId);
     const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
@@ -292,7 +304,29 @@ function renderTop() {
       <td>${tierB(p.tier)}</td>
     </tr>`;
   });
-  h += '</tbody></table></div><div class="note">Upcoming games only · Tier A ≥ 3.20 · Tier B 2.50–3.19 · Talent 30% · Order 25% · Matchup 25% · Park 20%</div>';
+  h += '</tbody></table></div>';
+
+  // Mobile card layout
+  h += '<div class="tp-cards">';
+  top15.forEach((p,i) => {
+    const gm = DATA.games?.find(g=>g.id===p.gameId);
+    const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
+    const hrrColor = p.tier==="A"?"var(--green)":p.tier==="B"?"var(--amber)":"var(--muted)";
+    h += `<div class="tp-card">
+      <div class="tp-rank">${i+1}</div>
+      <div class="tp-info">
+        <div class="tp-name">${p.name}${hot(p.hotStreak)}</div>
+        <div class="tp-meta">${chip(p.team)} ${p.pos} · ${p.order === 1 ? "Leadoff" : p.order === 2 ? "2-hole" : "#"+p.order} · ${sp?sp.name+" ("+sp.hand+")":"?"}</div>
+      </div>
+      <div class="tp-right">
+        <div class="tp-hrr" style="color:${hrrColor}">${fmt(p.hrr)}</div>
+        <div class="tp-tier">${tierB(p.tier)}</div>
+      </div>
+    </div>`;
+  });
+  h += '</div>';
+
+  h += '<div class="note">Upcoming games only · Tier A ≥ 3.20 · Tier B 2.50–3.19 · Talent 30% · Order 25% · Matchup 25% · Park 20%</div>';
   $("p-top").innerHTML = h;
 }
 
