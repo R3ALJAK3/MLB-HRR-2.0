@@ -26,6 +26,63 @@ const PARK_FACTORS = {
 // Cache player stats to avoid duplicate API calls
 const playerStatsCache = {};
 
+// ── Vegas odds via The Odds API (free tier, 500 req/month) ──────────────
+// Set ODDS_API_KEY as a GitHub secret to enable. Falls back gracefully if missing.
+async function fetchOddsLines() {
+  const key = process.env.ODDS_API_KEY;
+  if (!key) { console.log("No ODDS_API_KEY — skipping Vegas lines"); return {}; }
+  try {
+    const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${key}&regions=us&markets=totals&oddsFormat=american&dateFormat=iso`;
+    const res = await fetch(url);
+    if (!res.ok) { console.log(`Odds API error: ${res.status}`); return {}; }
+    const data = await res.json();
+    const lines = {};
+    for (const game of data) {
+      // Find best bookmaker total (prefer DraftKings or FanDuel)
+      const bk = game.bookmakers?.find(b=>b.key==="draftkings"||b.key==="fanduel") || game.bookmakers?.[0];
+      const totals = bk?.markets?.find(m=>m.key==="totals");
+      const over = totals?.outcomes?.find(o=>o.name==="Over");
+      if (over?.point) {
+        // Build a key from team names to match with MLB API games
+        const away = game.away_team;
+        const home = game.home_team;
+        lines[`${away}_${home}`] = {
+          total: over.point,
+          impliedAwayRuns: Math.round(over.point / 2 * 10) / 10,
+          impliedHomeRuns: Math.round(over.point / 2 * 10) / 10,
+          bookmaker: bk.title,
+          commence: game.commence_time,
+        };
+      }
+    }
+    console.log(`Fetched odds for ${Object.keys(lines).length} games`);
+    return lines;
+  } catch(e) { console.log("Odds fetch error:", e.message); return {}; }
+}
+
+// Match an MLB game to an odds line (fuzzy team name matching)
+function findOddsLine(game, oddsLines) {
+  const teamMap = {
+    "LAA":"Los Angeles Angels","NYY":"New York Yankees","BOS":"Boston Red Sox",
+    "TOR":"Toronto Blue Jays","TB":"Tampa Bay Rays","BAL":"Baltimore Orioles",
+    "CLE":"Cleveland Guardians","DET":"Detroit Tigers","CWS":"Chicago White Sox",
+    "KC":"Kansas City Royals","MIN":"Minnesota Twins","HOU":"Houston Astros",
+    "TEX":"Texas Rangers","SEA":"Seattle Mariners","ATH":"Athletics","OAK":"Athletics",
+    "NYM":"New York Mets","ATL":"Atlanta Braves","PHI":"Philadelphia Phillies",
+    "WSH":"Washington Nationals","MIA":"Miami Marlins","MIL":"Milwaukee Brewers",
+    "CHC":"Chicago Cubs","STL":"St. Louis Cardinals","CIN":"Cincinnati Reds",
+    "PIT":"Pittsburgh Pirates","LAD":"Los Angeles Dodgers","SF":"San Francisco Giants",
+    "SD":"San Diego Padres","ARI":"Arizona Diamondbacks","COL":"Colorado Rockies",
+  };
+  const away = teamMap[game.away?.abbr]||"";
+  const home = teamMap[game.home?.abbr]||"";
+  for (const [key, line] of Object.entries(oddsLines)) {
+    if (key.includes(away)||key.includes(home)) return line;
+  }
+  return null;
+}
+
+
 async function mlbFetch(path) {
   const res = await fetch(`${MLB_API}${path}`);
   if (!res.ok) throw new Error(`MLB API ${res.status}: ${path}`);
@@ -239,6 +296,7 @@ async function buildGameData(mlbGames) {
         parkFactor,
         weatherNote: "",
         weatherRisk: false,
+        oddsLine: null, // filled in after odds fetch
         away: { abbr: awayTeam.abbreviation, name: awayTeam.name, pitcher: awayPitcher, lineup: awayLineup },
         home: { abbr: homeTeam.abbreviation, name: homeTeam.name, pitcher: homePitcher, lineup: homeLineup },
       });
@@ -284,6 +342,16 @@ async function main() {
   if (!mlbGames.length) { console.log("No games today."); process.exit(0); }
 
   const games = await buildGameData(mlbGames);
+
+  // Fetch Vegas lines and attach to games
+  const oddsLines = await fetchOddsLines();
+  for (const game of games) {
+    const line = findOddsLine(game, oddsLines);
+    if (line) {
+      game.oddsLine = line;
+      console.log(`  Vegas: ${game.away.abbr}@${game.home.abbr} O/U ${line.total} (${line.bookmaker})`);
+    }
+  }
 
   const data = { date: TODAY_ET, generatedAt: new Date().toISOString(), games };
   const enriched = enrichWithProjections(data);
