@@ -217,9 +217,12 @@ const notStarted = g => gameTime(g) > nowET();
 const upGames = () => (DATA.games||[]).filter(notStarted);
 const upIds = () => new Set(upGames().map(g=>g.id));
 
-// Break HRR into H/R/RBI components based on batting order
-function breakdown(hrr, order) {
-  // Weights based on batting slot role
+// Break HRR into H/R/RBI components — use server-side if available
+function breakdown(hrr, order, p) {
+  if (p && p.hProj != null && p.rProj != null && p.rbiProj != null) {
+    return { h: p.hProj, r: p.rProj, rbi: p.rbiProj };
+  }
+  // Fallback client-side calculation
   const w = order<=1  ? {h:.42,r:.34,rbi:.24}
            : order<=2  ? {h:.40,r:.30,rbi:.30}
            : order<=3  ? {h:.37,r:.26,rbi:.37}
@@ -356,13 +359,13 @@ function renderTop() {
   // Desktop table
   h += `<div class="tw" style="margin-bottom:.5rem"><table class="desktop-tbl"><thead><tr>
     <th>#</th><th>Player</th><th>Team</th><th>Pos</th><th>Ord</th><th>Opp SP</th><th>Hand</th>
-    <th>AVG</th><th>L10</th><th>OPS</th><th>wRC+</th><th>Barrel%</th><th>H</th><th>R</th><th>RBI</th><th>Proj HRR</th><th>Actual</th><th>Result</th>
+    <th>AVG</th><th>L10</th><th>OPS</th><th>wRC+</th><th>Barrel%</th><th>BvP</th><th>H</th><th>R</th><th>RBI</th><th>Proj HRR</th><th>Actual</th><th>Result</th>
   </tr></thead><tbody>`;
 
   top10.forEach((p,i) => {
     const gm = DATA.games?.find(g=>g.id===p.gameId);
     const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
-    const bd = breakdown(p.hrr, p.order);
+    const bd = breakdown(p.hrr, p.order, p);
     const key = p.name+"_"+p.team;
     const res = TOP10_RESULTS[key];
     const isFinal = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Final";
@@ -395,6 +398,7 @@ function renderTop() {
       <td class="n">${(p.ops||0).toFixed(3)}</td>
       <td class="n">${p.wrcPlus||"—"}</td>
       <td class="n">${p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}</td>
+      <td class="n" style="font-size:11px;color:${p.bvp&&p.bvp.avg>=.300?'var(--green)':p.bvp&&p.bvp.avg<.200?'var(--red)':'var(--muted)'}">${p.bvp?p.bvp.avg.toFixed(3)+' <span style="font-size:9px;color:var(--dim)">('+p.bvp.ab+'AB)</span>':"—"}</td>
       <td class="n" style="color:var(--green)">${fmt(bd.h)}</td>
       <td class="n" style="color:var(--blue)">${fmt(bd.r)}</td>
       <td class="n" style="color:var(--amber)">${fmt(bd.rbi)}</td>
@@ -410,7 +414,7 @@ function renderTop() {
   top10.forEach((p,i) => {
     const gm = DATA.games?.find(g=>g.id===p.gameId);
     const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
-    const bd = breakdown(p.hrr, p.order);
+    const bd = breakdown(p.hrr, p.order, p);
     const key = p.name+"_"+p.team;
     const res = TOP10_RESULTS[key];
     const isFinal = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Final";
@@ -504,7 +508,7 @@ function renderSlate() {
       pls.forEach(p => {
         const rc = p.tier==="A"?"a":p.tier==="B"?"b":"";
         const nc = p.tier==="A"?"a":p.tier==="B"?"b":"";
-        const bd = breakdown(p.hrr, p.order);
+        const bd = breakdown(p.hrr, p.order, p);
         t += `<div class="lr ${rc}">
           <span class="lnum">${p.order}</span>
           <span class="lname ${nc}">${p.name}${hot(p.hotStreak)}</span>
@@ -525,7 +529,7 @@ function renderSlate() {
         </div>
         <div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-align:right">
           PF ${(g.parkFactor||1).toFixed(2)}×${g.weatherNote?" · "+g.weatherNote:""}
-          ${g.oddsLine?`<br><span style="color:var(--amber)">O/U ${g.oddsLine.total}</span> <span style="color:var(--dim);font-size:10px">${g.oddsLine.bookmaker||""}</span>`:""}
+          ${g.oddsLine?`<br><span style="color:var(--amber)">O/U ${g.oddsLine.total}</span>${g.oddsLine.awayImplied&&g.oddsLine.awayImplied!==g.oddsLine.total/2?' <span style="font-size:10px;color:var(--dim)">('+g.away.abbr+' '+g.oddsLine.awayImplied.toFixed(1)+' / '+g.home.abbr+' '+g.oddsLine.homeImplied.toFixed(1)+')</span>':' <span style="color:var(--dim);font-size:10px">'+g.oddsLine.bookmaker+'</span>'}`:""}
         </div>
       </div>
       <div class="gg">
@@ -598,12 +602,13 @@ function applyFilters() {
   }
   // Pre-compute projected H/R/RBI so they can be sorted
   all.forEach(p => {
-    const bd = breakdown(p.hrr, p.order);
+    const bd = breakdown(p.hrr, p.order, p);
     p.hProj = bd.h; p.rProj = bd.r; p.rbiProj = bd.rbi;
     // Get opp SP for hand sorting
     const gm = DATA.games?.find(g=>g.id===p.gameId);
     const sp = gm?(p.team===gm.home.abbr?gm.away.pitcher:gm.home.pitcher):null;
     p.spHand = sp?.hand||""; p.oppSP = sp?.name||"";
+    p.bvpDisplay = p.bvp ? p.bvp.avg.toFixed(3)+"("+p.bvp.ab+")" : "";
   });
   all.sort((a,b)=>{
     const av=a[SK],bv=b[SK];
@@ -613,7 +618,7 @@ function applyFilters() {
     {k:"name",l:"Player"},{k:"team",l:"Team"},{k:"pos",l:"Pos"},{k:"order",l:"Ord"},
     {k:"bats",l:"B"},{k:"oppSP",l:"Opp SP"},{k:"spHand",l:"Hand"},
     {k:"avg",l:"AVG"},{k:"last10Avg",l:"L10 AVG"},{k:"ops",l:"OPS"},{k:"wrcPlus",l:"wRC+"},
-    {k:"barrelPct",l:"Barrel%"},{k:"hardHitPct",l:"HardHit%"},
+    {k:"barrelPct",l:"Barrel%"},{k:"hardHitPct",l:"HardHit%"},{k:"bvpDisplay",l:"BvP"},
     {k:"hProj",l:"H Proj"},{k:"rProj",l:"R Proj"},{k:"rbiProj",l:"RBI Proj"},
     {k:"hrr",l:"HRR"},{k:"tier",l:"Tier"}
   ];
@@ -639,6 +644,7 @@ function applyFilters() {
       <td class="n">${p.wrcPlus||"—"}</td>
       <td class="n">${p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}</td>
       <td class="n">${p.hardHitPct!=null?p.hardHitPct.toFixed(1)+"%":"—"}</td>
+      <td class="n" style="font-size:11px;color:${p.bvp&&p.bvp.avg>=.300?'var(--green)':p.bvp&&p.bvp.avg<.200?'var(--red)':'var(--muted)'}">${p.bvpDisplay||"—"}</td>
       <td class="n" style="color:var(--green)">${fmt(p.hProj)}</td>
       <td class="n" style="color:var(--blue)">${fmt(p.rProj)}</td>
       <td class="n" style="color:var(--amber)">${fmt(p.rbiProj)}</td>
@@ -667,7 +673,7 @@ function renderStacks() {
         return `<span style="color:${c}">${p.name} <span class="n" style="font-size:11px;color:var(--muted)">${fmt(p.hrr)}</span></span>`;
       }).join('<span style="color:var(--dim);margin:0 3px">+</span>');
       h+=`<div class="scard"><span class="srank">${i+1}</span>
-        <div style="min-width:65px">${chip(s.team)}<div style="font-size:10px;color:var(--dim);margin-top:2px">vs ${s.opp} · ${s.time}${s.impliedRuns?' · <span style="color:var(--amber)">'+s.impliedRuns.toFixed(1)+' impl</span>':""}</div></div>
+        <div style="min-width:65px">${chip(s.team)}<div style="font-size:10px;color:var(--dim);margin-top:2px">vs ${s.opp} · ${s.time}${s.impliedRuns?' · <span style="color:var(--amber)">'+s.impliedRuns.toFixed(1)+' impl</span>':""}</div>${s.adjacencyBonus>0?'<div style="font-size:9px;color:var(--green);margin-top:1px">+'+s.adjacencyBonus.toFixed(2)+' adj bonus</div>':""}</div>
         <div class="splayers">${pl}</div>
         <div class="stot">${(s.total||0).toFixed(2)}</div></div>`;
     });
@@ -737,7 +743,7 @@ function liveCard(g) {
 // ── RESULTS ───────────────────────────────────────────
 async function renderResults() {
   const fin=Object.values(LIVE).filter(g=>g.status?.abstractGameState==="Final");
-  if(!fin.length){$("p-results").innerHTML='<p style="color:var(--muted);padding:1rem">Results appear once games finish.</p>';return;}
+  if(!fin.length){$("p-results").innerHTML='<p style="color:var(--muted);padding:1rem">Results appear once games finish.</p>'+renderAccuracyHistory();return;}
   $("p-results").innerHTML='<p style="color:var(--muted);padding:1rem">Loading boxscores...</p>';
   const rows=[];
   for(const g of fin){
@@ -752,34 +758,95 @@ async function renderResults() {
           if((s.atBats||0)===0)continue;
           const hits=parseInt(s.hits||0),runs=parseInt(s.runs||0),rbi=parseInt(s.rbi||0);
           const actual=hits+runs+rbi;
-          // Try exact match first, then name-only match (handles accent differences)
           const fullName = p.person?.fullName||"";
           const normName = n => n.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
           let proj=DATA?.allPlayers?.find(pl=>pl.name===fullName&&pl.team===abbr);
           if(!proj) proj=DATA?.allPlayers?.find(pl=>normName(pl.name)===normName(fullName)&&pl.team===abbr);
           if(!proj) proj=DATA?.allPlayers?.find(pl=>normName(pl.name)===normName(fullName));
-          rows.push({name:p.person?.fullName||"?",abbr,hits,runs,rbi,actual,proj:proj?.hrr??null});
+          rows.push({name:p.person?.fullName||"?",abbr,hits,runs,rbi,actual,proj:proj?.hrr??null,tier:proj?.tier||null});
         }
       }
     }catch(e){console.log("BS err",g.gamePk,e.message);}
   }
   rows.sort((a,b)=>b.actual-a.actual);
-  let h='<div style="font-size:12px;color:var(--muted);margin-bottom:.75rem">Actual H+R+RBI vs projected HRR. "—" = bench/pinch-hit players not in morning lineup.</div>';
-  h+='<div class="tw"><table><thead><tr><th>Player</th><th>Team</th><th>H</th><th>R</th><th>RBI</th><th>Actual</th><th>Projected</th><th>Diff</th></tr></thead><tbody>';
-  if(!rows.length){h+='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:1.5rem">No data yet.</td></tr>';}
+
+  // Compute aggregate accuracy stats
+  const projected = rows.filter(r=>r.proj!==null);
+  const hitters = projected.filter(r=>r.actual>=Math.round(r.proj));
+  const hitRate = projected.length>0?Math.round(hitters.length/projected.length*1000)/10:0;
+  const avgDiff = projected.length>0?Math.round(projected.reduce((s,r)=>s+(r.actual-r.proj),0)/projected.length*100)/100:0;
+  const tierARows = projected.filter(r=>r.tier==="A");
+  const tierAHit = tierARows.length>0?Math.round(tierARows.filter(r=>r.actual>=Math.round(r.proj)).length/tierARows.length*1000)/10:0;
+  const tierBRows = projected.filter(r=>r.tier==="B");
+  const tierBHit = tierBRows.length>0?Math.round(tierBRows.filter(r=>r.actual>=Math.round(r.proj)).length/tierBRows.length*1000)/10:0;
+  const top3Actual = rows.slice(0,3).reduce((s,r)=>s+r.actual,0);
+
+  let h = `<div class="sg">
+    <div class="sc"><div class="l">Hit Rate</div><div class="v" style="color:${hitRate>=55?'var(--green)':hitRate>=45?'var(--amber)':'var(--red)'}">${hitRate}%</div></div>
+    <div class="sc"><div class="l">Avg Diff</div><div class="v" style="color:${avgDiff>=0?'var(--green)':'var(--red)'}">${avgDiff>=0?"+":""}${avgDiff}</div></div>
+    <div class="sc"><div class="l">Tier A Rate</div><div class="v" style="color:${tierAHit>=55?'var(--green)':'var(--amber)'}">${tierAHit}%</div></div>
+    <div class="sc"><div class="l">Tier B Rate</div><div class="v" style="color:var(--muted)">${tierBHit}%</div></div>
+    <div class="sc"><div class="l">Top 3 Actual</div><div class="v">${top3Actual}</div></div>
+    <div class="sc"><div class="l">Projected</div><div class="v">${projected.length}/${rows.length}</div></div>
+  </div>`;
+
+  h+='<div style="font-size:12px;color:var(--muted);margin-bottom:.75rem">Actual H+R+RBI vs projected HRR. Hit = actual ≥ rounded projection. "—" = bench/pinch-hit not in lineup.</div>';
+  h+='<div class="tw"><table><thead><tr><th>Player</th><th>Team</th><th>Tier</th><th>H</th><th>R</th><th>RBI</th><th>Actual</th><th>Projected</th><th>Diff</th></tr></thead><tbody>';
+  if(!rows.length){h+='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:1.5rem">No data yet.</td></tr>';}
   else{rows.forEach(r=>{
     const diff=r.proj!==null?Math.round((r.actual-r.proj)*100)/100:null;
     const ds=diff!==null?(diff>=0?"+"+diff:""+diff):"—";
     const dc=diff!==null?(diff>=0?"gg2":"gb2"):"";
     h+=`<tr class="${r.actual>=3?"res-win":""}">
       <td style="font-weight:500">${r.name}</td><td>${chip(r.abbr)}</td>
+      <td>${r.tier?tierB(r.tier):'<span class="tc">—</span>'}</td>
       <td class="n">${r.hits}</td><td class="n">${r.runs}</td><td class="n">${r.rbi}</td>
       <td class="n" style="font-size:15px;font-weight:700;color:${r.actual>=3?"var(--green)":r.actual>=2?"var(--amber)":"var(--muted)"}">${r.actual}</td>
       <td class="n">${r.proj!==null?fmt(r.proj):"—"}</td>
       <td class="n ${dc}">${ds}</td></tr>`;
   });}
   h+='</tbody></table></div>';
+
+  // Append accuracy history
+  h += renderAccuracyHistory();
+
   $("p-results").innerHTML=h;
+}
+
+function renderAccuracyHistory() {
+  const history = DATA?.accuracyHistory || [];
+  if (!history.length) return '';
+  let h = '<div style="margin-top:1.5rem"><div class="section-title" style="display:flex;align-items:center;gap:8px">Model Accuracy History <span style="font-size:10px;color:var(--dim);font-weight:400">Last '+history.length+' days</span></div>';
+  
+  // Summary stats across all days
+  const validDays = history.filter(d => d.top10HitRate != null);
+  if (validDays.length >= 2) {
+    const avgHitRate = Math.round(validDays.reduce((s,d) => s + d.top10HitRate, 0) / validDays.length * 10) / 10;
+    const avgDiff = Math.round(validDays.reduce((s,d) => s + (d.top10AvgDiff||0), 0) / validDays.length * 100) / 100;
+    const bestDay = validDays.reduce((best,d) => d.top10HitRate > best.top10HitRate ? d : best);
+    h += `<div class="sg" style="margin-bottom:.75rem">
+      <div class="sc"><div class="l">Avg Hit Rate</div><div class="v" style="color:${avgHitRate>=55?'var(--green)':'var(--amber)'}">${avgHitRate}%</div></div>
+      <div class="sc"><div class="l">Avg Diff</div><div class="v" style="color:${avgDiff>=0?'var(--green)':'var(--red)'}">${avgDiff>=0?"+":""}${avgDiff}</div></div>
+      <div class="sc"><div class="l">Best Day</div><div class="v" style="color:var(--green)">${bestDay.top10HitRate}%</div></div>
+      <div class="sc"><div class="l">Days Tracked</div><div class="v">${validDays.length}</div></div>
+    </div>`;
+  }
+
+  h += '<div class="tw"><table><thead><tr><th>Date</th><th>Top 10 Hit%</th><th>Avg Diff</th><th>Tier A</th><th>Tier B</th><th>Games</th></tr></thead><tbody>';
+  [...history].reverse().forEach(d => {
+    const hr = d.top10HitRate != null ? d.top10HitRate + "%" : "—";
+    const hrColor = d.top10HitRate >= 60 ? "var(--green)" : d.top10HitRate >= 40 ? "var(--amber)" : "var(--red)";
+    h += `<tr>
+      <td class="n">${d.date}</td>
+      <td class="n" style="font-weight:700;color:${hrColor}">${hr}</td>
+      <td class="n" style="color:${(d.top10AvgDiff||0)>=0?'var(--green)':'var(--red)'}">${d.top10AvgDiff!=null?(d.top10AvgDiff>=0?"+":"")+d.top10AvgDiff:"—"}</td>
+      <td class="n">${d.tierAHitRate!=null?d.tierAHitRate+"%":"—"}</td>
+      <td class="n">${d.tierBHitRate!=null?d.tierBHitRate+"%":"—"}</td>
+      <td class="n">${d.gamesCompleted||"—"}</td>
+    </tr>`;
+  });
+  h += '</tbody></table></div></div>';
+  return h;
 }
 
 function exportCSV() {
@@ -797,10 +864,10 @@ function exportCSV() {
   const rows=all.map(p=>{
     const gm=DATA.games?.find(g=>g.id===p.gameId);
     const sp=gm?(p.team===gm.home.abbr?gm.away.pitcher:gm.home.pitcher):null;
-    const bd=breakdown(p.hrr,p.order);
-    return `"${p.name}",${p.team},${p.pos},${p.order},${p.bats},"${sp?sp.name:"—"}",${sp?sp.hand:""},${(p.ops||0).toFixed(3)},${p.wrcPlus||0},${fmt(bd.h)},${fmt(bd.r)},${fmt(bd.rbi)},${fmt(p.hrr)},${p.tier}`;
+    const bd=breakdown(p.hrr,p.order,p);
+    return `"${p.name}",${p.team},${p.pos},${p.order},${p.bats},"${sp?sp.name:"—"}",${sp?sp.hand:""},${(p.ops||0).toFixed(3)},${p.wrcPlus||0},${p.bvp?p.bvp.avg.toFixed(3):""},${p.bvp?p.bvp.ab:""},${fmt(bd.h)},${fmt(bd.r)},${fmt(bd.rbi)},${fmt(p.hrr)},${p.tier}`;
   });
-  const csv=["Player,Team,Pos,Order,Bats,Opp SP,SP Hand,OPS,wRC+,H Proj,R Proj,RBI Proj,HRR,Tier",...rows].join("\n");
+  const csv=["Player,Team,Pos,Order,Bats,Opp SP,SP Hand,OPS,wRC+,BvP AVG,BvP AB,H Proj,R Proj,RBI Proj,HRR,Tier",...rows].join("\n");
   const a=document.createElement("a");
   a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
   a.download="hrr-"+(DATA.date||"today")+".csv";
