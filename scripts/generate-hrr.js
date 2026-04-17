@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 /**
- * MLB HRR Generator v5 — All Free Data Sources
+ * MLB HRR Generator v6 — All Free Data Sources
  * ─────────────────────────────────────────────
- * MLB Stats API     — lineups, pitcher stats, platoon splits, game logs, injuries
+ * MLB Stats API     — lineups, pitcher stats, platoon splits, game logs, injuries, BvP
  * Baseball Savant   — xwOBA, barrel%, hard hit%, xERA (no key needed)
  * Open-Meteo        — weather per stadium (no key needed)
- * The Odds API      — Vegas O/U lines (free key, optional)
+ * The Odds API      — Vegas O/U + moneyline → asymmetric implied runs (free key)
+ *
+ * v6 changes: asymmetric implied runs, 9th batter fix, BvP career data,
+ *             granular order multipliers, server-side H/R/RBI breakdown,
+ *             stack adjacency correlation, retry logic, accuracy history,
+ *             dynamic Savant year
  */
 
 import { Octokit } from "@octokit/rest";
@@ -13,7 +18,8 @@ import { Octokit } from "@octokit/rest";
 const MLB = "https://statsapi.mlb.com/api/v1";
 const TODAY_ET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 const TODAY_DISPLAY = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/New_York" });
-const LEAGUE_XWOBA = 0.315; // 2025-26 MLB average xwOBA
+const CURRENT_YEAR = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }).split("-")[0];
+const LEAGUE_XWOBA = 0.315; // MLB average xwOBA
 
 // ── Stadium coordinates + dome status ─────────────────
 const STADIUMS = {
@@ -81,9 +87,11 @@ const playerCache = {};
 
 // ── Fetch helpers ──────────────────────────────────────
 async function mlbFetch(path) {
-  const res = await fetch(`${MLB}${path}`);
-  if (!res.ok) throw new Error(`MLB API ${res.status}: ${path}`);
-  return res.json();
+  return withRetry(async () => {
+    const res = await fetch(`${MLB}${path}`);
+    if (!res.ok) throw new Error(`MLB API ${res.status}: ${path}`);
+    return res.json();
+  }, path, 2, 1500);
 }
 
 async function safeFetch(url, opts = {}) {
@@ -92,6 +100,19 @@ async function safeFetch(url, opts = {}) {
     if (!res.ok) return null;
     return res;
   } catch { return null; }
+}
+
+// ── Retry wrapper for MLB API ─────────────────────────
+async function withRetry(fn, label = "", retries = 2, delayMs = 1500) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i === retries) throw e;
+      console.log(`  Retry ${i + 1}/${retries} for ${label}: ${e.message}`);
+      await new Promise(r => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
 }
 
 // ── Baseball Savant CSV ────────────────────────────────
@@ -111,7 +132,7 @@ let savantBatters = {}, savantPitchers = {};
 async function fetchSavantData() {
   console.log("Fetching Baseball Savant data...");
   try {
-    const batterURL = `https://baseballsavant.mlb.com/leaderboard/custom?year=2026&type=batter&filter=&min=10&selections=player_id,player_name,xba,xslg,xwoba,xobp,exit_velocity_avg,barrel_batted_rate,hard_hit_percent&csv=true`;
+    const batterURL = `https://baseballsavant.mlb.com/leaderboard/custom?year=${CURRENT_YEAR}&type=batter&filter=&min=10&selections=player_id,player_name,xba,xslg,xwoba,xobp,exit_velocity_avg,barrel_batted_rate,hard_hit_percent&csv=true`;
     const res = await safeFetch(batterURL);
     if (res) {
       const text = await res.text();
@@ -132,7 +153,7 @@ async function fetchSavantData() {
   } catch(e) { console.log("  Savant batter error:", e.message); }
 
   try {
-    const pitcherURL = `https://baseballsavant.mlb.com/leaderboard/custom?year=2026&type=pitcher&filter=&min=5&selections=player_id,player_name,xera,p_k_percent,p_bb_percent,exit_velocity_avg,barrel_batted_rate,hard_hit_percent&csv=true`;
+    const pitcherURL = `https://baseballsavant.mlb.com/leaderboard/custom?year=${CURRENT_YEAR}&type=pitcher&filter=&min=5&selections=player_id,player_name,xera,p_k_percent,p_bb_percent,exit_velocity_avg,barrel_batted_rate,hard_hit_percent&csv=true`;
     const res = await safeFetch(pitcherURL);
     if (res) {
       const text = await res.text();
@@ -207,9 +228,9 @@ async function getFullPlayerStats(playerId) {
   if (playerCache[playerId]) return playerCache[playerId];
   try {
     const [seasonRes, splitsRes, logRes] = await Promise.all([
-      mlbFetch(`/people/${playerId}?hydrate=stats(group=hitting,type=season,season=2026)`).catch(() => null),
-      mlbFetch(`/people/${playerId}/stats?stats=vsLeft,vsRight&season=2026&group=hitting`).catch(() => null),
-      mlbFetch(`/people/${playerId}/stats?stats=gameLog&season=2026&group=hitting&limit=15`).catch(() => null),
+      mlbFetch(`/people/${playerId}?hydrate=stats(group=hitting,type=season,season=${CURRENT_YEAR})`).catch(() => null),
+      mlbFetch(`/people/${playerId}/stats?stats=vsLeft,vsRight&season=${CURRENT_YEAR}&group=hitting`).catch(() => null),
+      mlbFetch(`/people/${playerId}/stats?stats=gameLog&season=${CURRENT_YEAR}&group=hitting&limit=15`).catch(() => null),
     ]);
 
     const seasonStats = seasonRes?.people?.[0]?.stats?.find(s => s.type?.displayName === "season")?.splits?.[0]?.stat;
@@ -286,7 +307,7 @@ async function getFullPlayerStats(playerId) {
 async function getPitcherStats(pitcherId) {
   if (!pitcherId) return null;
   try {
-    const data = await mlbFetch(`/people/${pitcherId}?hydrate=stats(group=pitching,type=season,season=2026)`);
+    const data = await mlbFetch(`/people/${pitcherId}?hydrate=stats(group=pitching,type=season,season=${CURRENT_YEAR})`);
     const stats = data.people?.[0]?.stats?.find(s => s.type?.displayName === "season")?.splits?.[0]?.stat;
     if (!stats) return null;
     const ip = parseFloat(stats.inningsPitched || 0);
@@ -302,7 +323,7 @@ async function getPitcherStats(pitcherId) {
 let injuredPlayers = new Set();
 async function fetchInjuries() {
   try {
-    const data = await mlbFetch(`/injuries?season=2026&sportId=1`);
+    const data = await mlbFetch(`/injuries?season=${CURRENT_YEAR}&sportId=1`);
     const injuries = data.injuries || [];
     injuries.forEach(inj => {
       const id = inj.player?.id;
@@ -313,6 +334,36 @@ async function fetchInjuries() {
     });
     console.log(`  Injuries: ${injuredPlayers.size} players on IL/DTD`);
   } catch(e) { console.log("  Injury fetch error:", e.message); }
+}
+
+// ── Batter vs Pitcher career stats ────────────────────
+const bvpCache = {};
+async function getBvPStats(batterId, pitcherId) {
+  if (!batterId || !pitcherId) return null;
+  const key = `${batterId}_${pitcherId}`;
+  if (bvpCache[key] !== undefined) return bvpCache[key];
+  try {
+    const data = await withRetry(
+      () => mlbFetch(`/people/${batterId}/stats?stats=vsPlayer&opposingPlayerId=${pitcherId}&group=hitting`),
+      `BvP ${batterId}v${pitcherId}`
+    );
+    const splits = data.stats?.[0]?.splits || [];
+    let totalAB = 0, totalH = 0, totalHR = 0, totalBB = 0, totalPA = 0;
+    for (const s of splits) {
+      totalAB += parseInt(s.stat?.atBats || 0);
+      totalH  += parseInt(s.stat?.hits || 0);
+      totalHR += parseInt(s.stat?.homeRuns || 0);
+      totalBB += parseInt(s.stat?.baseOnBalls || 0);
+      totalPA += parseInt(s.stat?.plateAppearances || 0);
+    }
+    if (totalAB < 5) { bvpCache[key] = null; return null; }
+    const avg = totalH / totalAB;
+    const obp = totalPA > 0 ? (totalH + totalBB) / totalPA : avg;
+    const slg = totalAB > 0 ? (totalH + totalHR * 3) / totalAB : 0; // rough SLG
+    const result = { ab: totalAB, avg: Math.round(avg * 1000) / 1000, ops: Math.round((obp + slg) * 1000) / 1000, hr: totalHR };
+    bvpCache[key] = result;
+    return result;
+  } catch { bvpCache[key] = null; return null; }
 }
 
 // ── Enhanced HRR model ─────────────────────────────────
@@ -359,7 +410,9 @@ function computeHRR(batter, oppPitcher, parkFactor, weatherAdj, teamImpliedRuns)
   matchup = Math.max(0.5, Math.min(5, matchup));
 
   // ── Batting order / run environment (25%) ──
-  const orderMultiplier = order <= 2 ? 4.5 : order <= 5 ? 4.0 : 2.8;
+  // Granular per-slot multipliers based on PA frequency and run production
+  const ORDER_MULT = { 1: 4.8, 2: 4.4, 3: 4.2, 4: 4.0, 5: 3.6, 6: 3.2, 7: 2.8, 8: 2.5, 9: 2.2 };
+  const orderMultiplier = ORDER_MULT[order] || 2.5;
   // Vegas implied total adjustment
   let impliedAdj = 0;
   if (teamImpliedRuns) {
@@ -379,6 +432,17 @@ function computeHRR(batter, oppPitcher, parkFactor, weatherAdj, teamImpliedRuns)
             + matchup * 0.30
             + envScore * 0.15
             + impliedAdj;
+
+  // ── BvP career adjustment ──
+  if (batter.bvp && batter.bvp.ab >= 10) {
+    // Strong sample: 10+ AB career vs this pitcher
+    const bvpAdv = (batter.bvp.avg - (batter.avg || 0.250)) * 3;
+    score += Math.max(-0.5, Math.min(0.5, bvpAdv));
+  } else if (batter.bvp && batter.bvp.ab >= 5) {
+    // Small sample: 5-9 AB, reduced weight
+    const bvpAdv = (batter.bvp.avg - (batter.avg || 0.250)) * 1.5;
+    score += Math.max(-0.25, Math.min(0.25, bvpAdv));
+  }
 
   // ── Hot/cold streak multiplier ──
   if (batter.streakType === "hot")  score *= 1.12;
@@ -415,7 +479,7 @@ async function getBoxscoreLineup(gamePk, teamId) {
     const batterIds = data.teams?.[side]?.battingOrder || [];
     const players = data.teams?.[side]?.players || {};
     const lineup = [];
-    for (const id of batterIds.slice(0, 8)) {
+    for (const id of batterIds.slice(0, 9)) {
       const p = players[`ID${id}`];
       if (!p) continue;
       lineup.push({
@@ -476,13 +540,16 @@ async function buildGameData(mlbGames, oddsLines) {
       if (!awayLineup.length) awayLineup = [{ id: "", name: "Lineup TBD", pos: "?", order: 1, bats: "R" }];
       if (!homeLineup.length) homeLineup = [{ id: "", name: "Lineup TBD", pos: "?", order: 1, bats: "R" }];
 
-      // Enrich lineups with full player stats in parallel
-      const enrichLineup = async (lineup) => {
+      // Enrich lineups with full player stats + BvP in parallel
+      const enrichLineup = async (lineup, oppPitcherId) => {
         return Promise.all(lineup.map(async batter => {
           if (!batter.id || batter.name === "Lineup TBD") {
-            return { ...batter, ops: 0.720, avg: 0.250, wrcPlus: 100, vsLeftOPS: null, vsRightOPS: null, hitStreak: 0, last10Avg: 0.250, streakType: "neutral", hotStreak: false, barrelPct: null, hardHitPct: null, injured: false };
+            return { ...batter, ops: 0.720, avg: 0.250, wrcPlus: 100, vsLeftOPS: null, vsRightOPS: null, hitStreak: 0, last10Avg: 0.250, streakType: "neutral", hotStreak: false, barrelPct: null, hardHitPct: null, injured: false, bvp: null };
           }
-          const stats = await getFullPlayerStats(batter.id);
+          const [stats, bvp] = await Promise.all([
+            getFullPlayerStats(batter.id),
+            oppPitcherId ? getBvPStats(batter.id, oppPitcherId).catch(() => null) : Promise.resolve(null),
+          ]);
           return {
             ...batter,
             ops:        stats?.ops        || 0.720,
@@ -502,13 +569,14 @@ async function buildGameData(mlbGames, oddsLines) {
             streakType: stats?.streakType || "neutral",
             hotStreak:  stats?.hotStreak  || false,
             injured:    injuredPlayers.has(batter.id),
+            bvp:        bvp,
           };
         }));
       };
 
       [awayLineup, homeLineup] = await Promise.all([
-        enrichLineup(awayLineup),
-        enrichLineup(homeLineup),
+        enrichLineup(awayLineup, homePRaw?.id),   // away batters face home pitcher
+        enrichLineup(homeLineup, awayPRaw?.id),    // home batters face away pitcher
       ]);
 
       // Find Vegas line for this game
@@ -530,13 +598,27 @@ async function buildGameData(mlbGames, oddsLines) {
   return games;
 }
 
+// ── H/R/RBI Breakdown by batting order ────────────────
+function breakdownHRR(hrr, order) {
+  const w = order <= 1 ? { h: 0.42, r: 0.34, rbi: 0.24 }
+          : order <= 2 ? { h: 0.40, r: 0.30, rbi: 0.30 }
+          : order <= 3 ? { h: 0.37, r: 0.26, rbi: 0.37 }
+          : order <= 5 ? { h: 0.35, r: 0.22, rbi: 0.43 }
+          : { h: 0.40, r: 0.22, rbi: 0.38 };
+  return {
+    hProj:   Math.round(hrr * w.h * 100) / 100,
+    rProj:   Math.round(hrr * w.r * 100) / 100,
+    rbiProj: Math.round(hrr * w.rbi * 100) / 100,
+  };
+}
+
 // ── Projections ────────────────────────────────────────
 function enrichWithProjections(data) {
   const allPlayers = [];
   data.games.forEach(game => {
-    // Get implied team runs from odds
-    const awayImplied = game.oddsLine ? game.oddsLine.total / 2 : null;
-    const homeImplied = game.oddsLine ? game.oddsLine.total / 2 : null;
+    // Asymmetric implied team runs from odds
+    const awayImplied = game.oddsLine?.awayImplied || (game.oddsLine ? game.oddsLine.total / 2 : null);
+    const homeImplied = game.oddsLine?.homeImplied || (game.oddsLine ? game.oddsLine.total / 2 : null);
 
     ["away", "home"].forEach(side => {
       const team      = game[side];
@@ -544,12 +626,17 @@ function enrichWithProjections(data) {
       const implied   = side === "away" ? awayImplied : homeImplied;
       team.lineup.forEach(batter => {
         const hrr = computeHRR(batter, opp.pitcher, game.parkFactor, game.weatherAdj, implied);
+        const bd  = breakdownHRR(hrr, batter.order);
         batter.hrr      = hrr;
+        batter.hProj    = bd.hProj;
+        batter.rProj    = bd.rProj;
+        batter.rbiProj  = bd.rbiProj;
         batter.tier     = hrr >= 3.2 ? "A" : hrr >= 2.5 ? "B" : "C";
         batter.team     = team.abbr;
         batter.gameId   = game.id;
         batter.gamePk   = game.gamePk;
         batter.gameTime = game.time;
+        batter.impliedRuns = implied;
         allPlayers.push(batter);
       });
     });
@@ -559,7 +646,7 @@ function enrichWithProjections(data) {
   data.topPlays    = allPlayers.slice(0, 15);
   data.allPlayers  = allPlayers;
 
-  // Stacks weighted by implied team total
+  // Stacks weighted by implied team total + adjacency bonus
   const teamGroups = {};
   allPlayers.forEach(p => {
     const key = `${p.team}-${p.gameId}`;
@@ -572,30 +659,80 @@ function enrichWithProjections(data) {
     const [abbr] = key.split("-");
     const game = data.games.find(g => g.away.abbr === abbr || g.home.abbr === abbr);
     const opp  = game ? (game.away.abbr === abbr ? game.home.abbr : game.away.abbr) : "?";
-    const impl = game?.oddsLine ? game.oddsLine.total / 2 : null;
-    if (sorted.length >= 2) { const t = sorted.slice(0, 2); stacks2.push({ team: abbr, opp, time: t[0].gameTime, players: t, total: t.reduce((s,p)=>s+p.hrr,0), impliedRuns: impl }); }
-    if (sorted.length >= 3) { const t = sorted.slice(0, 3); stacks3.push({ team: abbr, opp, time: t[0].gameTime, players: t, total: t.reduce((s,p)=>s+p.hrr,0), impliedRuns: impl }); }
+    const impl = game?.oddsLine ? (game.away.abbr === abbr ? game.oddsLine.awayImplied : game.oddsLine.homeImplied) || game.oddsLine.total / 2 : null;
+    
+    // Adjacency bonus: consecutive batting order slots correlate
+    const adjBonus = (stack) => {
+      const orders = stack.map(p => p.order).sort((a, b) => a - b);
+      let bonus = 0;
+      for (let i = 1; i < orders.length; i++) {
+        if (orders[i] - orders[i - 1] === 1) bonus += 0.15; // consecutive slots
+        else if (orders[i] - orders[i - 1] === 2) bonus += 0.05; // one slot apart
+      }
+      return bonus;
+    };
+    
+    if (sorted.length >= 2) {
+      const t = sorted.slice(0, 2);
+      const adj = adjBonus(t);
+      stacks2.push({ team: abbr, opp, time: t[0].gameTime, players: t, total: Math.round((t.reduce((s, p) => s + p.hrr, 0) + adj) * 100) / 100, impliedRuns: impl, adjacencyBonus: adj });
+    }
+    if (sorted.length >= 3) {
+      const t = sorted.slice(0, 3);
+      const adj = adjBonus(t);
+      stacks3.push({ team: abbr, opp, time: t[0].gameTime, players: t, total: Math.round((t.reduce((s, p) => s + p.hrr, 0) + adj) * 100) / 100, impliedRuns: impl, adjacencyBonus: adj });
+    }
   });
   data.stacks2 = stacks2.sort((a, b) => b.total - a.total).slice(0, 10);
   data.stacks3 = stacks3.sort((a, b) => b.total - a.total).slice(0, 10);
   return data;
 }
 
-// ── Vegas Odds ─────────────────────────────────────────
+// ── Vegas Odds — asymmetric implied runs ──────────────
+function oddsToProb(americanOdds) {
+  if (americanOdds > 0) return 100 / (americanOdds + 100);
+  return Math.abs(americanOdds) / (Math.abs(americanOdds) + 100);
+}
+
 async function fetchOddsLines() {
   const key = process.env.ODDS_API_KEY;
   if (!key) { console.log("No ODDS_API_KEY — skipping Vegas lines"); return {}; }
   try {
-    const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${key}&regions=us&markets=totals&oddsFormat=american&dateFormat=iso`;
+    const url = `https://api.the-odds-api.com/v4/sports/baseball_mlb/odds/?apiKey=${key}&regions=us&markets=totals,h2h&oddsFormat=american&dateFormat=iso`;
     const res = await safeFetch(url);
     if (!res) return {};
     const data = await res.json();
     const lines = {};
     for (const game of data) {
       const bk = game.bookmakers?.find(b => b.key === "draftkings" || b.key === "fanduel") || game.bookmakers?.[0];
-      const over = bk?.markets?.find(m => m.key === "totals")?.outcomes?.find(o => o.name === "Over");
-      if (over?.point) {
-        lines[`${game.away_team}_${game.home_team}`] = { total: over.point, bookmaker: bk.title };
+      if (!bk) continue;
+      const over = bk.markets?.find(m => m.key === "totals")?.outcomes?.find(o => o.name === "Over");
+      const h2h = bk.markets?.find(m => m.key === "h2h")?.outcomes || [];
+      const total = over?.point || null;
+      
+      // Compute asymmetric implied runs from moneyline
+      let awayImplied = total ? total / 2 : null;
+      let homeImplied = total ? total / 2 : null;
+      if (total && h2h.length >= 2) {
+        const awayLine = h2h.find(o => o.name === game.away_team);
+        const homeLine = h2h.find(o => o.name === game.home_team);
+        if (awayLine?.price != null && homeLine?.price != null) {
+          const awayProb = oddsToProb(awayLine.price);
+          const homeProb = oddsToProb(homeLine.price);
+          const totalProb = awayProb + homeProb;
+          if (totalProb > 0) {
+            awayImplied = Math.round(total * (awayProb / totalProb) * 100) / 100;
+            homeImplied = Math.round(total * (homeProb / totalProb) * 100) / 100;
+          }
+        }
+      }
+      
+      if (total) {
+        lines[`${game.away_team}_${game.home_team}`] = {
+          total, bookmaker: bk.title,
+          awayImplied, homeImplied,
+          awayTeam: game.away_team, homeTeam: game.home_team,
+        };
       }
     }
     console.log(`Fetched odds for ${Object.keys(lines).length} games`);
@@ -638,7 +775,7 @@ async function main() {
   if (missing.length) { console.error(`Missing env vars: ${missing.join(", ")}`); process.exit(1); }
   const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
-  console.log(`\n=== MLB HRR Generator v5 — ${TODAY_DISPLAY} ===`);
+  console.log(`\n=== MLB HRR Generator v6 — ${TODAY_DISPLAY} ===`);
   console.log(`All free data sources — zero AI costs\n`);
 
   // Parallel pre-fetches
@@ -658,7 +795,11 @@ async function main() {
 
   // Vegas log
   games.forEach(g => {
-    if (g.oddsLine) console.log(`  Vegas: ${g.away.abbr}@${g.home.abbr} O/U ${g.oddsLine.total} (${g.oddsLine.bookmaker})`);
+    if (g.oddsLine) {
+      const ai = g.oddsLine.awayImplied?.toFixed(1) || "?";
+      const hi = g.oddsLine.homeImplied?.toFixed(1) || "?";
+      console.log(`  Vegas: ${g.away.abbr}@${g.home.abbr} O/U ${g.oddsLine.total} → ${g.away.abbr} ${ai} / ${g.home.abbr} ${hi} (${g.oddsLine.bookmaker})`);
+    }
   });
 
   const data     = { date: TODAY_ET, generatedAt: new Date().toISOString(), games };
@@ -696,6 +837,74 @@ async function main() {
     ...newlyDropped.map(p => ({ ...p, droppedAt: new Date().toISOString() }))
   ];
   if (newlyDropped.length) console.log(`Previously considered: +${newlyDropped.length} (${newlyDropped.map(p=>p.name).join(", ")})`);
+
+  // ── Accuracy history — compute previous day's results on day change ──
+  enriched.accuracyHistory = existing?.accuracyHistory || [];
+  if (existing && existing.date !== TODAY_ET && existing.dailyTop10?.length) {
+    console.log("Computing accuracy for previous day...");
+    try {
+      const prevDate = existing.date;
+      const schedRes = await mlbFetch(`/schedule?sportId=1&date=${prevDate}&hydrate=team,linescore`);
+      const prevGames = schedRes.dates?.[0]?.games || [];
+      const finalGames = prevGames.filter(g => g.status?.abstractGameState === "Final");
+      
+      if (finalGames.length > 0) {
+        const actualResults = {};
+        for (const g of finalGames) {
+          try {
+            const bs = await mlbFetch(`/game/${g.gamePk}/boxscore`);
+            for (const side of ["away", "home"]) {
+              const td = bs.teams?.[side];
+              if (!td) continue;
+              const abbr = td.team?.abbreviation;
+              for (const p of Object.values(td.players || {})) {
+                const s = p.stats?.batting;
+                if (!s || (parseInt(s.atBats || 0)) === 0) continue;
+                const key = (p.person?.fullName || "") + "_" + abbr;
+                actualResults[key] = parseInt(s.hits || 0) + parseInt(s.runs || 0) + parseInt(s.rbi || 0);
+              }
+            }
+          } catch { /* skip */ }
+        }
+        
+        // Compute top 10 accuracy
+        let hits = 0, total = 0, diffs = [];
+        for (const p of existing.dailyTop10 || []) {
+          const key = p.name + "_" + p.team;
+          const actual = actualResults[key];
+          if (actual != null) {
+            total++;
+            if (actual >= Math.round(p.hrr)) hits++;
+            diffs.push(actual - p.hrr);
+          }
+        }
+        
+        // Tier accuracy
+        let tierAHits = 0, tierATotal = 0, tierBHits = 0, tierBTotal = 0;
+        for (const p of existing.allPlayers || []) {
+          const key = p.name + "_" + p.team;
+          const actual = actualResults[key];
+          if (actual != null) {
+            if (p.tier === "A") { tierATotal++; if (actual >= Math.round(p.hrr)) tierAHits++; }
+            if (p.tier === "B") { tierBTotal++; if (actual >= Math.round(p.hrr)) tierBHits++; }
+          }
+        }
+        
+        const dayAccuracy = {
+          date: prevDate,
+          top10HitRate: total > 0 ? Math.round((hits / total) * 1000) / 10 : null,
+          top10AvgDiff: diffs.length > 0 ? Math.round(diffs.reduce((a, b) => a + b, 0) / diffs.length * 100) / 100 : null,
+          tierAHitRate: tierATotal > 0 ? Math.round((tierAHits / tierATotal) * 1000) / 10 : null,
+          tierBHitRate: tierBTotal > 0 ? Math.round((tierBHits / tierBTotal) * 1000) / 10 : null,
+          gamesCompleted: finalGames.length,
+        };
+        enriched.accuracyHistory.push(dayAccuracy);
+        // Keep last 30 days
+        if (enriched.accuracyHistory.length > 30) enriched.accuracyHistory = enriched.accuracyHistory.slice(-30);
+        console.log(`  ${prevDate}: Top 10 hit rate ${dayAccuracy.top10HitRate}%, avg diff ${dayAccuracy.top10AvgDiff}`);
+      }
+    } catch (e) { console.log("  Accuracy calc error:", e.message); }
+  }
 
   await uploadToGist(octokit, process.env.GIST_ID, enriched);
 
