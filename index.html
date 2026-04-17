@@ -336,23 +336,27 @@ async function loadTop10Results() {
 
 function renderTop() {
   const top10 = DATA.dailyTop10 || (DATA.allPlayers||[]).slice(0,10);
-  const cA = top10.filter(p=>p.tier==="A").length;
-  const cB = top10.filter(p=>p.tier==="B").length;
-  const done = top10.filter(p => {
+  const realPlayers = top10.filter(p => !p.isTBD && p.name !== "Lineup TBD");
+  const cA = realPlayers.filter(p=>p.tier==="A").length;
+  const cB = realPlayers.filter(p=>p.tier==="B").length;
+  const done = realPlayers.filter(p => {
     const gm = DATA.games?.find(g=>g.id===p.gameId);
     return gm?.gamePk && LIVE[gm.gamePk]?.status?.abstractGameState === "Final";
   }).length;
+  const gamesWithLineups = (DATA.games||[]).filter(g => g.awayLineupAvailable || g.homeLineupAvailable).length;
+  const totalGames = (DATA.games||[]).length;
 
   let h = `<div class="sg">
-    <div class="sc"><div class="l">Today's Picks</div><div class="v">10</div></div>
+    <div class="sc"><div class="l">Today's Picks</div><div class="v">${realPlayers.length}</div></div>
     <div class="sc"><div class="l">Tier A</div><div class="v" style="color:var(--green)">${cA}</div></div>
     <div class="sc"><div class="l">Tier B</div><div class="v" style="color:var(--amber)">${cB}</div></div>
-    <div class="sc"><div class="l">Completed</div><div class="v" style="color:${done===10?"var(--green)":done>0?"var(--amber)":"var(--muted)"}">${done}/10</div></div>
-    <div class="sc"><div class="l">Top HRR</div><div class="v">${fmt(top10[0]?.hrr)}</div></div>
+    <div class="sc"><div class="l">Completed</div><div class="v" style="color:${done>=10?"var(--green)":done>0?"var(--amber)":"var(--muted)"}">${done}/${realPlayers.length}</div></div>
+    <div class="sc"><div class="l">Top HRR</div><div class="v">${realPlayers.length?fmt(realPlayers[0]?.hrr):"—"}</div></div>
+    <div class="sc"><div class="l">Lineups</div><div class="v" style="color:${gamesWithLineups===totalGames?'var(--green)':gamesWithLineups>0?'var(--amber)':'var(--muted)'}">${gamesWithLineups}/${totalGames}</div></div>
   </div>`;
 
-  if (!top10.length) {
-    h += `<div class="none-state"><div class="icon">⚾</div><div class="msg">No plays loaded yet.<br>Run the workflow to generate today's picks.</div></div>`;
+  if (!realPlayers.length) {
+    h += `<div class="none-state"><div class="icon">⚾</div><div class="msg">No confirmed lineups yet.<br>Lineups typically post 2-4 hours before game time.<br>The dashboard will update automatically as lineups are announced.</div></div>`;
     $("p-top").innerHTML=h; return;
   }
 
@@ -362,7 +366,7 @@ function renderTop() {
     <th>AVG</th><th>L10</th><th>OPS</th><th>wRC+</th><th>Barrel%</th><th>BvP</th><th>H</th><th>R</th><th>RBI</th><th>Proj HRR</th><th>Actual</th><th>Result</th>
   </tr></thead><tbody>`;
 
-  top10.forEach((p,i) => {
+  realPlayers.forEach((p,i) => {
     const gm = DATA.games?.find(g=>g.id===p.gameId);
     const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
     const bd = breakdown(p.hrr, p.order, p);
@@ -411,7 +415,7 @@ function renderTop() {
 
   // Mobile cards
   h += '<div class="mobile-cards">';
-  top10.forEach((p,i) => {
+  realPlayers.forEach((p,i) => {
     const gm = DATA.games?.find(g=>g.id===p.gameId);
     const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
     const bd = breakdown(p.hrr, p.order, p);
@@ -499,11 +503,26 @@ function renderSlate() {
   if (!games.length) { $("p-slate").innerHTML='<div class="none-state"><div class="icon">⚾</div><div class="msg">All games started — check Live Scores.</div></div>'; return; }
   let h = "";
   games.forEach(g => {
-    const ap = (DATA.allPlayers||[]).filter(p=>p.team===g.away.abbr&&p.gameId===g.id).sort((a,b)=>a.order-b.order);
-    const hp = (DATA.allPlayers||[]).filter(p=>p.team===g.home.abbr&&p.gameId===g.id).sort((a,b)=>a.order-b.order);
-    const lu = (pls, sp) => {
+    // Use lineup from game data directly (includes TBD), fall back to allPlayers
+    const getLineup = (side) => {
+      const abbr = g[side].abbr;
+      const gamePlayers = (DATA.allPlayers||[]).filter(p=>p.team===abbr&&p.gameId===g.id).sort((a,b)=>a.order-b.order);
+      if (gamePlayers.length > 0) return gamePlayers;
+      // Fall back to game lineup data
+      return (g[side].lineup||[]).sort((a,b)=>(a.order||1)-(b.order||1));
+    };
+    const ap = getLineup("away");
+    const hp = getLineup("home");
+    const awayTBD = !g.awayLineupAvailable && (ap.length <= 1 && (ap[0]?.name === "Lineup TBD" || ap[0]?.isTBD));
+    const homeTBD = !g.homeLineupAvailable && (hp.length <= 1 && (hp[0]?.name === "Lineup TBD" || hp[0]?.isTBD));
+    
+    const lu = (pls, sp, isTBD) => {
       const pi = sp ? `<div class="pi"><strong>${sp.name}</strong> ${handTag(sp.hand)} <span class="n">${fmt(sp.era)} ERA · ${sp.k9||"?"} K/9</span>${k10tag(sp.k9||0)}</div>` : '';
       let t = pi;
+      if (isTBD) {
+        t += '<div style="padding:12px 4px;text-align:center;color:var(--dim);font-size:12px;border:1px dashed var(--border);border-radius:6px;margin-top:6px">Awaiting lineup<br><span style="font-size:10px;color:var(--dim)">Lineups typically post 2-4 hrs before first pitch</span></div>';
+        return t;
+      }
       t += `<div class="lhdr"><span></span><span>Player</span><span>Pos</span><span>H</span><span>R</span><span>RBI</span><span>HRR</span></div>`;
       pls.forEach(p => {
         const rc = p.tier==="A"?"a":p.tier==="B"?"b":"";
@@ -533,8 +552,8 @@ function renderSlate() {
         </div>
       </div>
       <div class="gg">
-        <div><div class="tlbl">${g.away.name}</div>${lu(ap,g.away.pitcher)}</div>
-        <div><div class="tlbl">${g.home.name}</div>${lu(hp,g.home.pitcher)}</div>
+        <div><div class="tlbl">${g.away.name}</div>${lu(ap,g.away.pitcher,awayTBD)}</div>
+        <div><div class="tlbl">${g.home.name}</div>${lu(hp,g.home.pitcher,homeTBD)}</div>
       </div>
     </div>`;
   });
