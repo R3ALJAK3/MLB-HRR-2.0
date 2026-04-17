@@ -278,22 +278,13 @@ const notStarted = g => gameTime(g) > nowET();
 const upGames = () => (DATA.games||[]).filter(notStarted);
 const upIds = () => new Set(upGames().map(g=>g.id));
 
-// Break HRR into H/R/RBI components — use server-side if available
+// Break HRR into H/R/RBI components — server-side only (single source of truth)
 function breakdown(hrr, order, p) {
   if (p && p.hProj != null && p.rProj != null && p.rbiProj != null) {
     return { h: p.hProj, r: p.rProj, rbi: p.rbiProj };
   }
-  // Fallback client-side calculation
-  const w = order<=1  ? {h:.42,r:.34,rbi:.24}
-           : order<=2  ? {h:.40,r:.30,rbi:.30}
-           : order<=3  ? {h:.37,r:.26,rbi:.37}
-           : order<=5  ? {h:.35,r:.22,rbi:.43}
-           : {h:.40,r:.22,rbi:.38};
-  return {
-    h: Math.round(hrr*w.h*100)/100,
-    r: Math.round(hrr*w.r*100)/100,
-    rbi: Math.round(hrr*w.rbi*100)/100
-  };
+  // No server-side breakdown available (pre-v6 cached data)
+  return { h: 0, r: 0, rbi: 0 };
 }
 
 // ── init ──────────────────────────────────────────────
