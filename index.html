@@ -53,8 +53,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 /* tables */
 .tw{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);overflow-x:auto;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:7px 8px;font-size:10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px}
+th{text-align:left;padding:7px 8px;font-size:10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px;position:relative}
 th:hover{color:var(--text)}
+th[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--bg4);color:var(--text);font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;border:1px solid var(--border2);white-space:normal;width:max-content;max-width:220px;z-index:200;text-transform:none;letter-spacing:0;line-height:1.4;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+th[data-tip]:hover::before{content:"";position:absolute;bottom:calc(100% - 4px);left:50%;transform:translateX(-50%) rotate(45deg);width:8px;height:8px;background:var(--bg4);border-right:1px solid var(--border2);border-bottom:1px solid var(--border2);z-index:201}
 td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:rgba(255,255,255,.02)}
@@ -129,6 +131,17 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .none-state .icon{font-size:32px;margin-bottom:.75rem;opacity:.4}
 .none-state .msg{font-size:14px;color:var(--muted)}
 
+/* live boxscore expand */
+.live-expand{cursor:pointer}
+.live-expand:hover{border-color:var(--border2)}
+.live-bs{margin-top:8px;border-top:1px solid var(--border);padding-top:8px}
+.live-bs table{font-size:12px}
+.live-bs th{font-size:9px;padding:4px 6px;text-transform:uppercase;cursor:default}
+.live-bs td{padding:3px 6px;font-size:12px;font-family:var(--mono)}
+.live-bs .pname{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-weight:500}
+.expand-hint{font-size:10px;color:var(--dim);margin-top:4px;transition:opacity .2s}
+.chevron{display:inline-block;transition:transform .2s;font-size:10px;color:var(--dim);margin-left:4px}
+
 .loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem 1rem;gap:1rem}
 .spinner{width:26px;height:26px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -195,6 +208,51 @@ const streakTag = t => t==="hot"?'<span class="htag">🔥HOT</span>':t==="warm"?
 const injTag = i => i ? '<span style="font-size:9px;background:var(--abg);color:var(--amber);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700">⚠DTD</span>' : "";
 const k10tag = k => k > 10 ? '<span class="k10">K10+</span>' : "";
 const handTag = h => h==="L" ? '<span class="hand-l">LHP</span>' : '<span class="hand-r">RHP</span>';
+
+// ── Column tooltip definitions ───────────────────────
+const TIPS = {
+  "#":"Rank by projected HRR",
+  "Player":"Player name with streak/injury tags",
+  "Team":"MLB team abbreviation",
+  "Pos":"Fielding position",
+  "Ord":"Batting order position (1=leadoff, 4=cleanup)",
+  "B":"Bats — L (left), R (right), S (switch)",
+  "Opp SP":"Opposing starting pitcher",
+  "Hand":"Pitcher throwing hand — LHP or RHP",
+  "AVG":"Season batting average (hits ÷ at-bats)",
+  "L10":"Batting average over last 10 games",
+  "L10 AVG":"Batting average over last 10 games",
+  "OPS":"On-base + slugging — measures overall offensive value. League avg ~.720",
+  "wRC+":"Weighted runs created plus — 100 = league avg, 130+ = elite. Derived from xwOBA",
+  "Barrel%":"% of batted balls with ideal exit velo + launch angle. 10%+ is elite",
+  "HardHit%":"% of batted balls hit 95+ mph. 45%+ is elite",
+  "BvP":"Batter vs Pitcher — career batting avg against today's opposing SP (AB count)",
+  "H":"Projected hits component of HRR",
+  "H Proj":"Projected hits component of HRR",
+  "R":"Projected runs component of HRR",
+  "R Proj":"Projected runs component of HRR",
+  "RBI":"Projected RBI component of HRR",
+  "RBI Proj":"Projected RBI component of HRR",
+  "HRR":"Hits + Runs + RBI projection. Core model score",
+  "Proj HRR":"Hits + Runs + RBI projection. Core model score",
+  "Tier":"A (≥3.20) = top play, B (2.50-3.19) = solid, C (<2.50) = below avg",
+  "Actual":"Actual H+R+RBI from completed game",
+  "Result":"Whether actual HRR met or exceeded the rounded projection",
+  "Diff":"Actual HRR minus projected HRR",
+  "Top 10 Hit%":"% of top 10 picks that met/exceeded projection",
+  "Avg Diff":"Average (actual - projected) across all projected players",
+  "Tier A":"Hit rate for Tier A players only",
+  "Tier B":"Hit rate for Tier B players only",
+  "Games":"Number of completed games that day",
+  "Date":"Date of projections",
+};
+function tip(label) {
+  const t = TIPS[label];
+  return t ? ` data-tip="${t}"` : "";
+}
+
+// ── Live boxscore cache ──────────────────────────────
+const LIVE_BS = {};  // gamePk -> boxscore data
 
 function tierB(t) {
   return t==="A" ? '<span class="ta">A</span>'
@@ -281,7 +339,7 @@ async function fetchLive() {
 function pollLive() {
   fetchLive();
   if (liveTimer) clearInterval(liveTimer);
-  liveTimer = setInterval(fetchLive, 60000);
+  liveTimer = setInterval(()=>{ clearLiveBSCache(); fetchLive(); }, 60000);
 }
 
 function renderAll() {
@@ -362,8 +420,8 @@ function renderTop() {
 
   // Desktop table
   h += `<div class="tw" style="margin-bottom:.5rem"><table class="desktop-tbl"><thead><tr>
-    <th>#</th><th>Player</th><th>Team</th><th>Pos</th><th>Ord</th><th>Opp SP</th><th>Hand</th>
-    <th>AVG</th><th>L10</th><th>OPS</th><th>wRC+</th><th>Barrel%</th><th>BvP</th><th>H</th><th>R</th><th>RBI</th><th>Proj HRR</th><th>Actual</th><th>Result</th>
+    <th${tip("#")}>#</th><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Pos")}>Pos</th><th${tip("Ord")}>Ord</th><th${tip("Opp SP")}>Opp SP</th><th${tip("Hand")}>Hand</th>
+    <th${tip("AVG")}>AVG</th><th${tip("L10")}>L10</th><th${tip("OPS")}>OPS</th><th${tip("wRC+")}>wRC+</th><th${tip("Barrel%")}>Barrel%</th><th${tip("BvP")}>BvP</th><th${tip("H")}>H</th><th${tip("R")}>R</th><th${tip("RBI")}>RBI</th><th${tip("Proj HRR")}>Proj HRR</th><th${tip("Actual")}>Actual</th><th${tip("Result")}>Result</th>
   </tr></thead><tbody>`;
 
   realPlayers.forEach((p,i) => {
@@ -460,7 +518,7 @@ function renderTop() {
         <span style="font-size:11px;background:var(--abg);color:var(--amber);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-weight:700">PREVIOUSLY CONSIDERED</span>
         <span style="font-size:11px;color:var(--dim)">These players were in the top 10 earlier today before being replaced</span>
       </div>`;
-    h += '<div class="tw"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th>Pos</th><th>Opp SP</th><th>Hand</th><th>Proj HRR</th><th>Actual</th><th>Result</th></tr></thead><tbody>';
+    h += '<div class="tw"><table><thead><tr><th${tip("#")}>#</th><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Pos")}>Pos</th><th${tip("Opp SP")}>Opp SP</th><th${tip("Hand")}>Hand</th><th${tip("Proj HRR")}>Proj HRR</th><th${tip("Actual")}>Actual</th><th${tip("Result")}>Result</th></tr></thead><tbody>';
     considered.forEach((p, i) => {
       const gm = DATA.games?.find(g=>g.id===p.gameId);
       const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
@@ -523,7 +581,7 @@ function renderSlate() {
         t += '<div style="padding:12px 4px;text-align:center;color:var(--dim);font-size:12px;border:1px dashed var(--border);border-radius:6px;margin-top:6px">Awaiting lineup<br><span style="font-size:10px;color:var(--dim)">Lineups typically post 2-4 hrs before first pitch</span></div>';
         return t;
       }
-      t += `<div class="lhdr"><span></span><span>Player</span><span>Pos</span><span>H</span><span>R</span><span>RBI</span><span>HRR</span></div>`;
+      t += `<div class="lhdr"><span></span><span>Player</span><span title="Fielding position">Pos</span><span title="Projected hits">H</span><span title="Projected runs">R</span><span title="Projected RBI">RBI</span><span title="Hits+Runs+RBI projection">HRR</span></div>`;
       pls.forEach(p => {
         const rc = p.tier==="A"?"a":p.tier==="B"?"b":"";
         const nc = p.tier==="A"?"a":p.tier==="B"?"b":"";
@@ -645,7 +703,7 @@ function applyFilters() {
   h += '<div class="tw"><table style="min-width:820px"><thead><tr>';
   cols.forEach(c=>{
     const ar=SK===c.k?(SD===-1?" ↓":" ↑"):"";
-    h+=`<th data-k="${c.k}">${c.l}${ar}</th>`;
+    h+=`<th data-k="${c.k}"${tip(c.l)}>${c.l}${ar}</th>`;
   });
   h+="</tr></thead><tbody>";
   all.forEach(p=>{
@@ -733,7 +791,6 @@ function liveCard(g) {
   const ls=g.linescore;
   const ar=g.teams?.away?.score??ls?.teams?.away?.runs??"—";
   const hr=g.teams?.home?.score??ls?.teams?.home?.runs??"—";
-  // Handle special states
   const isDelayed = det.toLowerCase().includes("delay");
   const isSuspended = det.toLowerCase().includes("suspend");
   const isPostponed = det.toLowerCase().includes("postpone");
@@ -750,13 +807,102 @@ function liveCard(g) {
     const ae=ls.teams?.away?.errors||0,he=ls.teams?.home?.errors||0;
     hre=`<div style="font-size:11px;color:var(--muted);margin-top:5px;font-family:var(--mono)">${aa} H:${ah} E:${ae} &nbsp;|&nbsp; ${ha} H:${hh} E:${he}</div>`;
   }
-  return `<div class="gc ${st==="Live"?"live":""}" style="margin-bottom:8px">
+  const canExpand = st==="Live" || st==="Final";
+  const pk = g.gamePk;
+  return `<div class="gc ${st==="Live"?"live":""} ${canExpand?"live-expand":""}" style="margin-bottom:8px" ${canExpand?`onclick="toggleLiveBS(${pk},this)"`:""}>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap">
-      <div><div style="font-size:15px;font-weight:700">${aa} @ ${ha}</div>
+      <div><div style="font-size:15px;font-weight:700">${aa} @ ${ha}${canExpand?'<span class="chevron" id="chev-'+pk+'">▼</span>':""}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:1px">${an} vs ${hn} · ${g.venue?.name||""}</div></div>
       <div style="text-align:right"><div class="gscore">${ar} – ${hr}</div><span class="gstatus ${scls}">${stxt}</span></div>
     </div>${hre}
+    <div id="lbs-${pk}" style="display:none"></div>
   </div>`;
+}
+
+async function toggleLiveBS(gamePk, card) {
+  const el = document.getElementById("lbs-"+gamePk);
+  const chev = document.getElementById("chev-"+gamePk);
+  if (!el) return;
+  if (el.style.display !== "none") {
+    el.style.display = "none";
+    if (chev) chev.textContent = "▼";
+    return;
+  }
+  if (chev) chev.textContent = "▲";
+  
+  // Show loading
+  el.innerHTML = '<div style="padding:8px;color:var(--muted);font-size:12px;border-top:1px solid var(--border);margin-top:8px">Loading box score...</div>';
+  el.style.display = "block";
+  
+  // Fetch or use cache
+  if (!LIVE_BS[gamePk]) {
+    try {
+      const r = await fetch(`${MLBAPI}/game/${gamePk}/boxscore`);
+      LIVE_BS[gamePk] = await r.json();
+    } catch(e) {
+      el.innerHTML = '<div style="padding:8px;color:var(--red);font-size:12px;border-top:1px solid var(--border);margin-top:8px">Could not load box score</div>';
+      return;
+    }
+  }
+  
+  const bs = LIVE_BS[gamePk];
+  let h = '<div class="live-bs">';
+  
+  for (const side of ["away", "home"]) {
+    const td = bs.teams?.[side];
+    if (!td) continue;
+    const abbr = td.team?.abbreviation || td.team?.teamCode || "?";
+    const batters = td.battingOrder || [];
+    const players = td.players || {};
+    
+    h += `<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text)">${abbr} — Hitters</div>`;
+    h += '<table><thead><tr><th style="cursor:default">Player</th><th style="cursor:default;text-align:center">AB</th><th style="cursor:default;text-align:center">R</th><th style="cursor:default;text-align:center">H</th><th style="cursor:default;text-align:center">RBI</th><th style="cursor:default;text-align:center">HR</th><th style="cursor:default;text-align:center">BB</th><th style="cursor:default;text-align:center">K</th><th style="cursor:default;text-align:center;color:var(--green)">HRR</th></tr></thead><tbody>';
+    
+    for (const id of batters) {
+      const p = players["ID"+id];
+      if (!p) continue;
+      const s = p.stats?.batting;
+      if (!s) continue;
+      const ab = parseInt(s.atBats||0);
+      const runs = parseInt(s.runs||0);
+      const hits = parseInt(s.hits||0);
+      const rbi = parseInt(s.rbi||0);
+      const hr = parseInt(s.homeRuns||0);
+      const bb = parseInt(s.baseOnBalls||0);
+      const k = parseInt(s.strikeOuts||0);
+      const hrr = hits + runs + rbi;
+      const pos = p.position?.abbreviation || "";
+      const hrrColor = hrr >= 3 ? "var(--green)" : hrr >= 2 ? "var(--amber)" : "var(--muted)";
+      h += `<tr>
+        <td class="pname">${p.person?.fullName||"?"} <span style="font-size:10px;color:var(--dim)">${pos}</span></td>
+        <td style="text-align:center">${ab}</td>
+        <td style="text-align:center">${runs}</td>
+        <td style="text-align:center">${hits}</td>
+        <td style="text-align:center">${rbi}</td>
+        <td style="text-align:center">${hr}</td>
+        <td style="text-align:center">${bb}</td>
+        <td style="text-align:center">${k}</td>
+        <td style="text-align:center;font-weight:700;color:${hrrColor}">${hrr}</td>
+      </tr>`;
+    }
+    h += '</tbody></table></div>';
+  }
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+// Invalidate boxscore cache on each live poll so data refreshes
+function clearLiveBSCache() {
+  for (const pk of Object.keys(LIVE_BS)) {
+    const el = document.getElementById("lbs-"+pk);
+    // Only clear if the panel is currently open — force re-fetch on next toggle
+    if (el && el.style.display !== "none") {
+      delete LIVE_BS[pk];
+      toggleLiveBS(parseInt(pk), null).catch(()=>{});
+    } else {
+      delete LIVE_BS[pk];
+    }
+  }
 }
 
 // ── RESULTS ───────────────────────────────────────────
@@ -810,7 +956,7 @@ async function renderResults() {
   </div>`;
 
   h+='<div style="font-size:12px;color:var(--muted);margin-bottom:.75rem">Actual H+R+RBI vs projected HRR. Hit = actual ≥ rounded projection. "—" = bench/pinch-hit not in lineup.</div>';
-  h+='<div class="tw"><table><thead><tr><th>Player</th><th>Team</th><th>Tier</th><th>H</th><th>R</th><th>RBI</th><th>Actual</th><th>Projected</th><th>Diff</th></tr></thead><tbody>';
+  h+='<div class="tw"><table><thead><tr><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Tier")}>Tier</th><th${tip("H")}>H</th><th${tip("R")}>R</th><th${tip("RBI")}>RBI</th><th${tip("Actual")}>Actual</th><th${tip("Proj HRR")}>Projected</th><th${tip("Diff")}>Diff</th></tr></thead><tbody>';
   if(!rows.length){h+='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:1.5rem">No data yet.</td></tr>';}
   else{rows.forEach(r=>{
     const diff=r.proj!==null?Math.round((r.actual-r.proj)*100)/100:null;
@@ -851,7 +997,7 @@ function renderAccuracyHistory() {
     </div>`;
   }
 
-  h += '<div class="tw"><table><thead><tr><th>Date</th><th>Top 10 Hit%</th><th>Avg Diff</th><th>Tier A</th><th>Tier B</th><th>Games</th></tr></thead><tbody>';
+  h += '<div class="tw"><table><thead><tr><th${tip("Date")}>Date</th><th${tip("Top 10 Hit%")}>Top 10 Hit%</th><th${tip("Avg Diff")}>Avg Diff</th><th${tip("Tier A")}>Tier A</th><th${tip("Tier B")}>Tier B</th><th${tip("Games")}>Games</th></tr></thead><tbody>';
   [...history].reverse().forEach(d => {
     const hr = d.top10HitRate != null ? d.top10HitRate + "%" : "—";
     const hrColor = d.top10HitRate >= 60 ? "var(--green)" : d.top10HitRate >= 40 ? "var(--amber)" : "var(--red)";
