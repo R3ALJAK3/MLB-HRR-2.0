@@ -82,13 +82,14 @@ const CONFIG = {
   VEGAS_ADJ_LOW:       -0.25,
   VEGAS_ADJ_VLOW:      -0.5,
 
-  // BvP (batter vs pitcher) career adjustments
-  BVP_STRONG_AB:       10,     // min AB for full weight
-  BVP_WEAK_AB:         5,      // min AB for reduced weight
-  BVP_STRONG_SCALE:    3,      // multiplier for BvP avg difference
-  BVP_WEAK_SCALE:      1.5,
-  BVP_STRONG_CAP:      0.5,
-  BVP_WEAK_CAP:        0.25,
+  // BvP (batter vs pitcher) career adjustments — cap scales with sample size
+  BVP_MIN_AB:          5,      // minimum AB to use BvP at all
+  BVP_FULL_AB:         10,     // AB threshold for full scale (below = half scale)
+  BVP_SCALE:           3,      // multiplier for BvP avg difference
+  BVP_WEAK_SCALE_MULT: 0.5,   // weak sample (<10 AB) gets half scale
+  BVP_CAP_BASE:        0.30,   // minimum cap at 5 AB
+  BVP_CAP_PER_AB:      0.02,   // +0.02 cap per AB (17 AB → 0.64 cap)
+  BVP_CAP_MAX:         0.80,   // hard ceiling regardless of sample (hit ~25 AB)
 
   // Streak multipliers
   STREAK_HOT:          1.12,
@@ -571,13 +572,13 @@ function computeHRR(batter, oppPitcher, parkFactor, weatherAdj, teamImpliedRuns)
             + envScore     * CONFIG.WEIGHT_PARK
             + impliedAdj;
 
-  // ── BvP career adjustment ──
-  if (batter.bvp && batter.bvp.ab >= CONFIG.BVP_STRONG_AB) {
-    const bvpAdv = (batter.bvp.avg - (batter.avg || CONFIG.DEFAULT_AVG)) * CONFIG.BVP_STRONG_SCALE;
-    score += Math.max(-CONFIG.BVP_STRONG_CAP, Math.min(CONFIG.BVP_STRONG_CAP, bvpAdv));
-  } else if (batter.bvp && batter.bvp.ab >= CONFIG.BVP_WEAK_AB) {
-    const bvpAdv = (batter.bvp.avg - (batter.avg || CONFIG.DEFAULT_AVG)) * CONFIG.BVP_WEAK_SCALE;
-    score += Math.max(-CONFIG.BVP_WEAK_CAP, Math.min(CONFIG.BVP_WEAK_CAP, bvpAdv));
+  // ── BvP career adjustment (cap scales with sample size) ──
+  if (batter.bvp && batter.bvp.ab >= CONFIG.BVP_MIN_AB) {
+    const ab = batter.bvp.ab;
+    const scale = ab >= CONFIG.BVP_FULL_AB ? CONFIG.BVP_SCALE : CONFIG.BVP_SCALE * CONFIG.BVP_WEAK_SCALE_MULT;
+    const cap = Math.min(CONFIG.BVP_CAP_MAX, CONFIG.BVP_CAP_BASE + ab * CONFIG.BVP_CAP_PER_AB);
+    const bvpAdv = (batter.bvp.avg - (batter.avg || CONFIG.DEFAULT_AVG)) * scale;
+    score += Math.max(-cap, Math.min(cap, bvpAdv));
   }
 
   // ── Hot/cold streak multiplier ──
