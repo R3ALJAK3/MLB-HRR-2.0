@@ -962,25 +962,36 @@ async function main() {
   const freshMap   = Object.fromEntries(freshTop10.map(p => [p.name+"_"+p.team, p]));
   const existing   = await readExistingGist(octokit, process.env.GIST_ID);
 
-  if (existing?.dailyTop10?.length) {
-    enriched.dailyTop10 = existing.dailyTop10.map(ep => {
+  // Filter out TBD placeholders from any existing top10 (from pre-fix runs)
+  const existingReal = (existing?.dailyTop10 || []).filter(p => p.name && p.name !== "Lineup TBD" && !p.isTBD);
+
+  if (existingReal.length > 0) {
+    // Merge: keep locked players, refresh unlocked with fresh projections
+    const merged = existingReal.map(ep => {
       const started = ep.gamePk && mlbGames.some(g => g.gamePk === ep.gamePk && new Date(g.gameDate) < nowET);
       return started ? ep : (freshMap[ep.name+"_"+ep.team] || ep);
     });
-    const locked = enriched.dailyTop10.filter((ep, idx) => {
-      const started = ep.gamePk && mlbGames.some(g => g.gamePk === ep.gamePk && new Date(g.gameDate) < nowET);
-      return started;
+    // If merged has fewer than 10 (because TBDs were stripped), fill from fresh
+    const mergedKeys = new Set(merged.map(p => p.name+"_"+p.team));
+    const fillers = enriched.allPlayers.filter(p => !mergedKeys.has(p.name+"_"+p.team));
+    while (merged.length < 10 && fillers.length > 0) {
+      merged.push(fillers.shift());
+    }
+    // Re-sort unlocked slots by HRR (keep locked in place)
+    enriched.dailyTop10 = merged;
+    const locked = merged.filter(ep => {
+      return ep.gamePk && mlbGames.some(g => g.gamePk === ep.gamePk && new Date(g.gameDate) < nowET);
     }).length;
-    console.log(`Top 10: ${locked} locked, ${10-locked} still flexible`);
+    console.log(`Top 10: ${locked} locked, ${merged.length - locked} flexible, ${merged.length} total`);
   } else {
     enriched.dailyTop10 = freshTop10;
-    console.log("Initial top 10 set");
+    console.log(`Initial top 10 set (${freshTop10.length} players)`);
   }
 
-  // Track previously considered players
+  // Track previously considered players (exclude TBDs)
   const currentKeys  = new Set(enriched.dailyTop10.map(p => p.name+"_"+p.team));
-  const prevTop10    = existing?.dailyTop10 || [];
-  const prevConsidered = existing?.consideredToday || [];
+  const prevTop10    = existingReal;
+  const prevConsidered = (existing?.consideredToday || []).filter(p => p.name !== "Lineup TBD" && !p.isTBD);
   const alreadyConsidered = new Set(prevConsidered.map(p => p.name+"_"+p.team));
   const newlyDropped = prevTop10.filter(p => !currentKeys.has(p.name+"_"+p.team) && !alreadyConsidered.has(p.name+"_"+p.team));
   enriched.consideredToday = [
