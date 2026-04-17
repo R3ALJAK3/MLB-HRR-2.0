@@ -53,10 +53,12 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 /* tables */
 .tw{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);overflow-x:auto;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:7px 8px;font-size:10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px;position:relative}
+th{text-align:left;padding:7px 8px;font-size:10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px}
 th:hover{color:var(--text)}
-th[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--bg4);color:var(--text);font-size:11px;font-weight:400;padding:6px 10px;border-radius:6px;border:1px solid var(--border2);white-space:normal;width:max-content;max-width:220px;z-index:200;text-transform:none;letter-spacing:0;line-height:1.4;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.4)}
-th[data-tip]:hover::before{content:"";position:absolute;bottom:calc(100% - 4px);left:50%;transform:translateX(-50%) rotate(45deg);width:8px;height:8px;background:var(--bg4);border-right:1px solid var(--border2);border-bottom:1px solid var(--border2);z-index:201}
+th[data-tip]{cursor:help;border-bottom:1px dashed var(--dim)}
+
+/* global tooltip */
+#gtip{position:fixed;background:var(--bg4);color:var(--text);font-size:12px;font-weight:400;padding:7px 11px;border-radius:6px;border:1px solid var(--border2);white-space:normal;max-width:240px;z-index:9999;line-height:1.4;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.5);display:none;text-transform:none;letter-spacing:0}
 td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border-bottom:none}
 tr:hover td{background:rgba(255,255,255,.02)}
@@ -166,6 +168,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
 </style>
 </head>
 <body>
+<div id="gtip"></div>
 <div class="header">
   <div class="logo"><div class="dot"></div>MLB HRR</div>
   <div class="hright">
@@ -303,6 +306,28 @@ window.addEventListener("DOMContentLoaded", () => {
     btn.classList.add("on");
     AP = btn.dataset.p;
     $("p-"+AP).classList.add("on");
+  });
+
+  // Global tooltip for [data-tip] elements
+  const gtip = $("gtip");
+  document.addEventListener("mouseover", e => {
+    const el = e.target.closest("[data-tip]");
+    if (!el) { gtip.style.display = "none"; return; }
+    gtip.textContent = el.getAttribute("data-tip");
+    gtip.style.display = "block";
+    const r = el.getBoundingClientRect();
+    let left = r.left + r.width / 2 - gtip.offsetWidth / 2;
+    let top = r.top - gtip.offsetHeight - 6;
+    // Keep on screen
+    if (left < 4) left = 4;
+    if (left + gtip.offsetWidth > window.innerWidth - 4) left = window.innerWidth - gtip.offsetWidth - 4;
+    if (top < 4) { top = r.bottom + 6; } // flip below if no room above
+    gtip.style.left = left + "px";
+    gtip.style.top = top + "px";
+  });
+  document.addEventListener("mouseout", e => {
+    const el = e.target.closest("[data-tip]");
+    if (el) gtip.style.display = "none";
   });
 });
 
@@ -581,7 +606,7 @@ function renderSlate() {
         t += '<div style="padding:12px 4px;text-align:center;color:var(--dim);font-size:12px;border:1px dashed var(--border);border-radius:6px;margin-top:6px">Awaiting lineup<br><span style="font-size:10px;color:var(--dim)">Lineups typically post 2-4 hrs before first pitch</span></div>';
         return t;
       }
-      t += `<div class="lhdr"><span></span><span>Player</span><span title="Fielding position">Pos</span><span title="Projected hits">H</span><span title="Projected runs">R</span><span title="Projected RBI">RBI</span><span title="Hits+Runs+RBI projection">HRR</span></div>`;
+      t += `<div class="lhdr"><span></span><span>Player</span><span data-tip="Fielding position">Pos</span><span data-tip="Projected hits">H</span><span data-tip="Projected runs">R</span><span data-tip="Projected RBI">RBI</span><span data-tip="Hits+Runs+RBI projection">HRR</span></div>`;
       pls.forEach(p => {
         const rc = p.tier==="A"?"a":p.tier==="B"?"b":"";
         const nc = p.tier==="A"?"a":p.tier==="B"?"b":"";
