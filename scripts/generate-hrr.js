@@ -620,11 +620,16 @@ function enrichWithProjections(data) {
     const awayImplied = game.oddsLine?.awayImplied || (game.oddsLine ? game.oddsLine.total / 2 : null);
     const homeImplied = game.oddsLine?.homeImplied || (game.oddsLine ? game.oddsLine.total / 2 : null);
 
+    // Track lineup availability per side
+    game.awayLineupAvailable = game.away.lineup.length > 1 || (game.away.lineup[0]?.name !== "Lineup TBD");
+    game.homeLineupAvailable = game.home.lineup.length > 1 || (game.home.lineup[0]?.name !== "Lineup TBD");
+
     ["away", "home"].forEach(side => {
       const team      = game[side];
       const opp       = game[side === "away" ? "home" : "away"];
       const implied   = side === "away" ? awayImplied : homeImplied;
       team.lineup.forEach(batter => {
+        const isTBD = !batter.id || batter.name === "Lineup TBD";
         const hrr = computeHRR(batter, opp.pitcher, game.parkFactor, game.weatherAdj, implied);
         const bd  = breakdownHRR(hrr, batter.order);
         batter.hrr      = hrr;
@@ -637,7 +642,11 @@ function enrichWithProjections(data) {
         batter.gamePk   = game.gamePk;
         batter.gameTime = game.time;
         batter.impliedRuns = implied;
-        allPlayers.push(batter);
+        batter.isTBD    = isTBD;
+        // Only include real players in rankings
+        if (!isTBD) {
+          allPlayers.push(batter);
+        }
       });
     });
   });
