@@ -236,6 +236,30 @@ async function withRetry(fn, label = "", retries = 2, delayMs = 1500) {
   }
 }
 
+// ── Safe numeric parse (NaN → default) ────────────────
+function safeFloat(val, fallback = 0) {
+  const n = parseFloat(val);
+  return isFinite(n) ? n : fallback;
+}
+
+// ── Concurrency limiter ───────────────────────────────
+// Processes async tasks with a max number of concurrent operations
+function createLimiter(concurrency = 8) {
+  let active = 0;
+  const queue = [];
+  const next = () => {
+    if (queue.length === 0 || active >= concurrency) return;
+    active++;
+    const { fn, resolve, reject } = queue.shift();
+    fn().then(resolve, reject).finally(() => { active--; next(); });
+  };
+  return (fn) => new Promise((resolve, reject) => {
+    queue.push({ fn, resolve, reject });
+    next();
+  });
+}
+const limit = createLimiter(8); // max 8 concurrent MLB API call chains
+
 // ── Baseball Savant CSV ────────────────────────────────
 function parseCSV(text) {
   const lines = text.trim().split("\n");
@@ -354,11 +378,11 @@ async function getFullPlayerStats(playerId) {
     ]);
 
     const seasonStats = seasonRes?.people?.[0]?.stats?.find(s => s.type?.displayName === "season")?.splits?.[0]?.stat;
-    const ops = seasonStats ? (parseFloat(seasonStats.obp||0) + parseFloat(seasonStats.slg||0)) : CONFIG.LEAGUE_AVG_OPS;
-    const avg = parseFloat(seasonStats?.avg || CONFIG.DEFAULT_AVG);
-    const obp = parseFloat(seasonStats?.obp || CONFIG.DEFAULT_OBP);
-    const slg = parseFloat(seasonStats?.slg || CONFIG.DEFAULT_SLG);
-    const pa  = parseInt(seasonStats?.plateAppearances || 0);
+    const ops = seasonStats ? (safeFloat(seasonStats.obp, 0) + safeFloat(seasonStats.slg, 0)) : CONFIG.LEAGUE_AVG_OPS;
+    const avg = safeFloat(seasonStats?.avg, CONFIG.DEFAULT_AVG);
+    const obp = safeFloat(seasonStats?.obp, CONFIG.DEFAULT_OBP);
+    const slg = safeFloat(seasonStats?.slg, CONFIG.DEFAULT_SLG);
+    const pa  = parseInt(seasonStats?.plateAppearances || 0) || 0;
 
     // xwOBA → approx wRC+
     const sv = savantBatters[String(playerId)];
@@ -371,7 +395,7 @@ async function getFullPlayerStats(playerId) {
       for (const stat of splitsRes.stats) {
         const s = stat.splits?.[0]?.stat;
         if (!s) continue;
-        const o = parseFloat(s.obp||0) + parseFloat(s.slg||0);
+        const o = safeFloat(s.obp, 0) + safeFloat(s.slg, 0);
         if (stat.type?.displayName === "vsLeft") vsLeftOPS = o;
         if (stat.type?.displayName === "vsRight") vsRightOPS = o;
       }
@@ -430,8 +454,8 @@ async function getPitcherStats(pitcherId) {
     const data = await mlbFetch(`/people/${pitcherId}?hydrate=stats(group=pitching,type=season,season=${CURRENT_YEAR})`);
     const stats = data.people?.[0]?.stats?.find(s => s.type?.displayName === "season")?.splits?.[0]?.stat;
     if (!stats) return null;
-    const ip = parseFloat(stats.inningsPitched || 0);
-    const era = parseFloat(stats.era || CONFIG.DEFAULT_ERA);
+    const ip = safeFloat(stats.inningsPitched, 0);
+    const era = safeFloat(stats.era, CONFIG.DEFAULT_ERA);
     const k9  = ip > 0 ? Math.round((parseInt(stats.strikeOuts||0) / ip) * 9 * 10) / 10 : CONFIG.DEFAULT_K9;
     const sv  = savantPitchers[String(pitcherId)];
     const xera = sv?.xera || era; // fall back to ERA if no Savant data
@@ -565,7 +589,12 @@ function computeHRR(batter, oppPitcher, parkFactor, weatherAdj, teamImpliedRuns)
   // ── Injury penalty ──
   if (injuredPlayers.has(id)) score *= CONFIG.INJURY_MULT;
 
-  return Math.round(score * 100) / 100;
+  score = Math.round(score * 100) / 100;
+  if (!isFinite(score)) {
+    console.log(`  WARNING: NaN/Infinite HRR for ${batter.name || batter.id} — defaulting to ${CONFIG.TIER_B}`);
+    score = CONFIG.TIER_B;
+  }
+  return score;
 }
 
 // ── Schedule ───────────────────────────────────────────
@@ -652,9 +681,9 @@ async function buildGameData(mlbGames, oddsLines) {
       if (!awayLineup.length) awayLineup = [{ id: "", name: "Lineup TBD", pos: "?", order: 1, bats: "R" }];
       if (!homeLineup.length) homeLineup = [{ id: "", name: "Lineup TBD", pos: "?", order: 1, bats: "R" }];
 
-      // Enrich lineups with full player stats + BvP in parallel
+      // Enrich lineups with full player stats + BvP (concurrency-limited)
       const enrichLineup = async (lineup, oppPitcherId) => {
-        return Promise.all(lineup.map(async batter => {
+        return Promise.all(lineup.map(batter => limit(async () => {
           if (!batter.id || batter.name === "Lineup TBD") {
             return { ...batter, ops: CONFIG.LEAGUE_AVG_OPS, avg: CONFIG.DEFAULT_AVG, wrcPlus: CONFIG.DEFAULT_WRC, vsLeftOPS: null, vsRightOPS: null, hitStreak: 0, last10Avg: CONFIG.DEFAULT_AVG, streakType: "neutral", hotStreak: false, barrelPct: null, hardHitPct: null, injured: false, bvp: null };
           }
@@ -683,7 +712,7 @@ async function buildGameData(mlbGames, oddsLines) {
             injured:    injuredPlayers.has(batter.id),
             bvp:        bvp,
           };
-        }));
+        })));
       };
 
       [awayLineup, homeLineup] = await Promise.all([
