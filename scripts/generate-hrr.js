@@ -19,7 +19,128 @@ const MLB = "https://statsapi.mlb.com/api/v1";
 const TODAY_ET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 const TODAY_DISPLAY = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/New_York" });
 const CURRENT_YEAR = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }).split("-")[0];
-const LEAGUE_XWOBA = 0.315; // MLB average xwOBA
+
+// ── MODEL CONFIGURATION ──────────────────────────────
+// All tunable constants in one place. Change values here, not in the functions.
+const CONFIG = {
+  // League averages (baseline references)
+  LEAGUE_XWOBA:     0.315,
+  LEAGUE_AVG_OPS:   0.720,
+  DEFAULT_AVG:      0.250,
+  DEFAULT_OBP:      0.320,
+  DEFAULT_SLG:      0.400,
+  DEFAULT_WRC:      100,
+  DEFAULT_ERA:      4.50,
+  DEFAULT_K9:       8.5,
+
+  // HRR component weights (must sum to 1.0)
+  WEIGHT_TALENT:    0.30,
+  WEIGHT_MATCHUP:   0.30,
+  WEIGHT_ORDER:     0.25,
+  WEIGHT_PARK:      0.15,
+
+  // Tier thresholds
+  TIER_A:           3.20,
+  TIER_B:           2.50,
+
+  // Batting order multipliers (PA frequency × run production)
+  ORDER_MULT: { 1: 4.8, 2: 4.4, 3: 4.2, 4: 4.0, 5: 3.6, 6: 3.2, 7: 2.8, 8: 2.5, 9: 2.2 },
+  ORDER_MULT_DEFAULT: 2.5,
+
+  // Talent score bonuses
+  BARREL_THRESHOLD:   10,
+  BARREL_BONUS:       0.2,
+  HARDHIT_THRESHOLD:  45,
+  HARDHIT_BONUS:      0.15,
+
+  // Matchup adjustments
+  MATCHUP_BASE:       3.0,
+  PLATOON_SCALE:      4,       // multiplier for platoon OPS advantage
+  PLATOON_CAP:        1.5,     // max platoon adjustment
+  PLATOON_ADVANTAGE:  0.7,     // generic favorable platoon bonus
+  PLATOON_PENALTY:    -0.5,    // generic same-side penalty
+  PITCHER_ELITE_ERA:  3.0,     // xERA below this = strong penalty
+  PITCHER_GOOD_ERA:   3.50,
+  PITCHER_BAD_ERA:    5.00,
+  PITCHER_AWFUL_ERA:  5.50,
+  PITCHER_ELITE_ADJ:  -1.0,
+  PITCHER_GOOD_ADJ:   -0.5,
+  PITCHER_BAD_ADJ:    0.5,
+  PITCHER_AWFUL_ADJ:  0.9,
+  K9_HIGH:            10.5,
+  K9_MED:             9.5,
+  K9_HIGH_ADJ:        -1.2,
+  K9_MED_ADJ:         -0.5,
+
+  // Vegas implied run adjustments
+  VEGAS_BOOST_HIGH:    6.0,    // implied runs above this → big boost
+  VEGAS_BOOST_MED:     5.0,
+  VEGAS_PEN_LOW:       4.0,
+  VEGAS_PEN_VLOW:      3.5,
+  VEGAS_ADJ_HIGH:      0.5,
+  VEGAS_ADJ_MED:       0.25,
+  VEGAS_ADJ_LOW:       -0.25,
+  VEGAS_ADJ_VLOW:      -0.5,
+
+  // BvP (batter vs pitcher) career adjustments
+  BVP_STRONG_AB:       10,     // min AB for full weight
+  BVP_WEAK_AB:         5,      // min AB for reduced weight
+  BVP_STRONG_SCALE:    3,      // multiplier for BvP avg difference
+  BVP_WEAK_SCALE:      1.5,
+  BVP_STRONG_CAP:      0.5,
+  BVP_WEAK_CAP:        0.25,
+
+  // Streak multipliers
+  STREAK_HOT:          1.12,
+  STREAK_WARM:         1.05,
+  STREAK_COOL:         0.95,
+  STREAK_COLD:         0.88,
+
+  // Streak detection thresholds (last10Avg vs season avg)
+  STREAK_HOT_RATIO:    1.15,
+  STREAK_HOT_MIN_AB:   20,
+  STREAK_WARM_RATIO:   1.08,
+  STREAK_WARM_MIN_AB:  15,
+  STREAK_COLD_RATIO:   0.72,
+  STREAK_COLD_MIN_AB:  15,
+  STREAK_COOL_RATIO:   0.85,
+  STREAK_COOL_MIN_AB:  20,
+  HOT_STREAK_GAMES:    5,      // consecutive hit games for hotStreak flag
+
+  // Injury penalty
+  INJURY_MULT:         0.80,
+
+  // Weather thresholds
+  WIND_STRONG:         15,     // mph
+  WIND_NOTABLE:        8,
+  WIND_OUT_ADJ:        0.3,
+  WIND_IN_ADJ:         -0.3,
+  WIND_OUT_DIR_MIN:    180,
+  WIND_OUT_DIR_MAX:    315,
+  WIND_IN_DIR_MIN:     0,
+  WIND_IN_DIR_MAX:     135,
+  PRECIP_HIGH:         60,
+  PRECIP_MED:          30,
+  PRECIP_ADJ:          -0.25,
+  COLD_TEMP:           45,
+  COLD_ADJ:            -0.2,
+  RAIN_RISK_PRECIP:    60,
+  RAIN_RISK_COMBO_PRECIP: 40,
+  RAIN_RISK_COMBO_WIND:   20,
+
+  // Stack adjacency bonuses
+  STACK_ADJ_CONSECUTIVE: 0.15,
+  STACK_ADJ_ONE_APART:   0.05,
+
+  // H/R/RBI breakdown weights by batting order
+  BREAKDOWN: {
+    1: { h: 0.42, r: 0.34, rbi: 0.24 },
+    2: { h: 0.40, r: 0.30, rbi: 0.30 },
+    3: { h: 0.37, r: 0.26, rbi: 0.37 },
+    5: { h: 0.35, r: 0.22, rbi: 0.43 },  // covers 4-5
+    9: { h: 0.40, r: 0.22, rbi: 0.38 },  // covers 6-9
+  },
+};
 
 // ── Stadium coordinates + dome status ─────────────────
 const STADIUMS = {
@@ -99,7 +220,7 @@ async function safeFetch(url, opts = {}) {
     const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, ...opts });
     if (!res.ok) return null;
     return res;
-  } catch { return null; }
+  } catch(e) { console.log(`  safeFetch error (${url.slice(0,80)}): ${e.message}`); return null; }
 }
 
 // ── Retry wrapper for MLB API ─────────────────────────
@@ -196,30 +317,29 @@ async function fetchWeather(venue, gameTimeStr) {
 
     // Wind direction: 0=N, 90=E, 180=S, 270=W
     // "Blowing out" = wind coming FROM home plate direction (roughly S/SW for most parks)
-    // Simplified: 180-315 degrees = blowing toward outfield = good for hitters
-    const blowingOut = windDir >= 180 && windDir <= 315;
-    const blowingIn  = windDir >= 0 && windDir <= 135;
+    const blowingOut = windDir >= CONFIG.WIND_OUT_DIR_MIN && windDir <= CONFIG.WIND_OUT_DIR_MAX;
+    const blowingIn  = windDir >= CONFIG.WIND_IN_DIR_MIN && windDir <= CONFIG.WIND_IN_DIR_MAX;
 
     let adj = 0;
     let notes = [];
 
-    if (windSpd > 15 && blowingOut) { adj += 0.3; notes.push(`↑${Math.round(windSpd)}mph out`); }
-    else if (windSpd > 15 && blowingIn) { adj -= 0.3; notes.push(`↓${Math.round(windSpd)}mph in`); }
-    else if (windSpd > 8) notes.push(`${Math.round(windSpd)}mph`);
+    if (windSpd > CONFIG.WIND_STRONG && blowingOut) { adj += CONFIG.WIND_OUT_ADJ; notes.push(`↑${Math.round(windSpd)}mph out`); }
+    else if (windSpd > CONFIG.WIND_STRONG && blowingIn) { adj += CONFIG.WIND_IN_ADJ; notes.push(`↓${Math.round(windSpd)}mph in`); }
+    else if (windSpd > CONFIG.WIND_NOTABLE) notes.push(`${Math.round(windSpd)}mph`);
 
-    if (precip > 60) { adj -= 0.25; notes.push(`${precip}% rain`); }
-    else if (precip > 30) notes.push(`${precip}% rain`);
+    if (precip > CONFIG.PRECIP_HIGH) { adj += CONFIG.PRECIP_ADJ; notes.push(`${precip}% rain`); }
+    else if (precip > CONFIG.PRECIP_MED) notes.push(`${precip}% rain`);
 
-    if (temp < 45) { adj -= 0.2; notes.push(`${Math.round(temp)}°F cold`); }
+    if (temp < CONFIG.COLD_TEMP) { adj += CONFIG.COLD_ADJ; notes.push(`${Math.round(temp)}°F cold`); }
     else notes.push(`${Math.round(temp)}°F`);
 
     return {
       note: notes.join(", "),
-      risk: precip > 60 || (precip > 40 && windSpd > 20),
+      risk: precip > CONFIG.RAIN_RISK_PRECIP || (precip > CONFIG.RAIN_RISK_COMBO_PRECIP && windSpd > CONFIG.RAIN_RISK_COMBO_WIND),
       adjustment: Math.round(adj * 100) / 100,
       temp, windSpd, windDir, precip,
     };
-  } catch(e) { return { note: "", risk: false, adjustment: 0 }; }
+  } catch(e) { console.log(`  fetchWeather error (${venue}): ${e.message}`); return { note: "", risk: false, adjustment: 0 }; }
 }
 
 // ── Player full stats (season + splits + game log) ─────
@@ -234,16 +354,16 @@ async function getFullPlayerStats(playerId) {
     ]);
 
     const seasonStats = seasonRes?.people?.[0]?.stats?.find(s => s.type?.displayName === "season")?.splits?.[0]?.stat;
-    const ops = seasonStats ? (parseFloat(seasonStats.obp||0) + parseFloat(seasonStats.slg||0)) : 0.720;
-    const avg = parseFloat(seasonStats?.avg || 0.250);
-    const obp = parseFloat(seasonStats?.obp || 0.320);
-    const slg = parseFloat(seasonStats?.slg || 0.400);
+    const ops = seasonStats ? (parseFloat(seasonStats.obp||0) + parseFloat(seasonStats.slg||0)) : CONFIG.LEAGUE_AVG_OPS;
+    const avg = parseFloat(seasonStats?.avg || CONFIG.DEFAULT_AVG);
+    const obp = parseFloat(seasonStats?.obp || CONFIG.DEFAULT_OBP);
+    const slg = parseFloat(seasonStats?.slg || CONFIG.DEFAULT_SLG);
     const pa  = parseInt(seasonStats?.plateAppearances || 0);
 
     // xwOBA → approx wRC+
     const sv = savantBatters[String(playerId)];
     const xwoba = sv?.xwoba || null;
-    const wrcPlus = xwoba ? Math.round((xwoba / LEAGUE_XWOBA) * 100) : Math.round((ops / 0.720) * 100);
+    const wrcPlus = xwoba ? Math.round((xwoba / CONFIG.LEAGUE_XWOBA) * 100) : Math.round((ops / CONFIG.LEAGUE_AVG_OPS) * 100);
 
     // Platoon splits
     let vsLeftOPS = null, vsRightOPS = null;
@@ -281,10 +401,10 @@ async function getFullPlayerStats(playerId) {
 
     // Hot/cold determination
     let streakType = "neutral";
-    if (last10Avg > avg * 1.15 && last10AB >= 20) streakType = "hot";
-    else if (last10Avg > avg * 1.08 && last10AB >= 15) streakType = "warm";
-    else if (last10Avg < avg * 0.72 && last10AB >= 15) streakType = "cold";
-    else if (last10Avg < avg * 0.85 && last10AB >= 20) streakType = "cool";
+    if (last10Avg > avg * CONFIG.STREAK_HOT_RATIO && last10AB >= CONFIG.STREAK_HOT_MIN_AB) streakType = "hot";
+    else if (last10Avg > avg * CONFIG.STREAK_WARM_RATIO && last10AB >= CONFIG.STREAK_WARM_MIN_AB) streakType = "warm";
+    else if (last10Avg < avg * CONFIG.STREAK_COLD_RATIO && last10AB >= CONFIG.STREAK_COLD_MIN_AB) streakType = "cold";
+    else if (last10Avg < avg * CONFIG.STREAK_COOL_RATIO && last10AB >= CONFIG.STREAK_COOL_MIN_AB) streakType = "cool";
 
     const result = {
       ops, avg, obp, slg, pa, wrcPlus, xwoba,
@@ -296,11 +416,11 @@ async function getFullPlayerStats(playerId) {
       last10Avg,
       last10AB,
       streakType,
-      hotStreak: streak >= 5 || streakType === "hot",
+      hotStreak: streak >= CONFIG.HOT_STREAK_GAMES || streakType === "hot",
     };
     playerCache[playerId] = result;
     return result;
-  } catch(e) { return null; }
+  } catch(e) { console.log(`  getFullPlayerStats error (${playerId}): ${e.message}`); return null; }
 }
 
 // ── Pitcher enhanced stats ─────────────────────────────
@@ -311,12 +431,12 @@ async function getPitcherStats(pitcherId) {
     const stats = data.people?.[0]?.stats?.find(s => s.type?.displayName === "season")?.splits?.[0]?.stat;
     if (!stats) return null;
     const ip = parseFloat(stats.inningsPitched || 0);
-    const era = parseFloat(stats.era || 4.50);
-    const k9  = ip > 0 ? Math.round((parseInt(stats.strikeOuts||0) / ip) * 9 * 10) / 10 : 8.5;
+    const era = parseFloat(stats.era || CONFIG.DEFAULT_ERA);
+    const k9  = ip > 0 ? Math.round((parseInt(stats.strikeOuts||0) / ip) * 9 * 10) / 10 : CONFIG.DEFAULT_K9;
     const sv  = savantPitchers[String(pitcherId)];
     const xera = sv?.xera || era; // fall back to ERA if no Savant data
     return { era: Math.round(era * 100) / 100, k9, xera: Math.round(xera * 100) / 100 };
-  } catch { return null; }
+  } catch(e) { console.log(`  getPitcherStats error (${pitcherId}): ${e.message}`); return null; }
 }
 
 // ── Injury list ────────────────────────────────────────
@@ -363,95 +483,87 @@ async function getBvPStats(batterId, pitcherId) {
     const result = { ab: totalAB, avg: Math.round(avg * 1000) / 1000, ops: Math.round((obp + slg) * 1000) / 1000, hr: totalHR };
     bvpCache[key] = result;
     return result;
-  } catch { bvpCache[key] = null; return null; }
+  } catch(e) { console.log(`  BvP fetch error (${batterId} vs ${pitcherId}): ${e.message}`); bvpCache[key] = null; return null; }
 }
 
 // ── Enhanced HRR model ─────────────────────────────────
 function computeHRR(batter, oppPitcher, parkFactor, weatherAdj, teamImpliedRuns) {
   const id    = String(batter.id || "");
   const sv    = savantBatters[id] || {};
-  const ops   = batter.ops || 0.720;
-  const wrc   = batter.wrcPlus || 100;
+  const ops   = batter.ops || CONFIG.LEAGUE_AVG_OPS;
+  const wrc   = batter.wrcPlus || CONFIG.DEFAULT_WRC;
   const order = batter.order || 5;
 
-  // ── Talent score (30%) ──
+  // ── Talent score ──
   const opsScore  = Math.min(5, Math.max(1, (ops - 0.5) * 10));
   const wrcScore  = Math.min(5, Math.max(1, (wrc - 60) * 0.05));
   let talentScore = (opsScore + wrcScore) / 2;
-  if ((sv.barrelPct || 0) > 10) talentScore += 0.2;
-  if ((sv.hardHitPct || 0) > 45) talentScore += 0.15;
+  if ((sv.barrelPct || 0) > CONFIG.BARREL_THRESHOLD) talentScore += CONFIG.BARREL_BONUS;
+  if ((sv.hardHitPct || 0) > CONFIG.HARDHIT_THRESHOLD) talentScore += CONFIG.HARDHIT_BONUS;
   talentScore = Math.min(5, talentScore);
 
-  // ── Matchup score (30%) ──
-  let matchup = 3.0;
-  // Real platoon OPS if available
+  // ── Matchup score ──
+  let matchup = CONFIG.MATCHUP_BASE;
   const platoonOPS = (batter.bats === "L" && oppPitcher.hand === "R") ? batter.vsRightOPS
                    : (batter.bats === "R" && oppPitcher.hand === "L") ? batter.vsLeftOPS
                    : (batter.bats === "L" && oppPitcher.hand === "L") ? batter.vsLeftOPS
                    : batter.vsRightOPS;
   if (platoonOPS) {
-    // Use real platoon OPS relative to league average
-    const platoonAdv = (platoonOPS - 0.720) * 4;
-    matchup += Math.max(-1.5, Math.min(1.5, platoonAdv));
+    const platoonAdv = (platoonOPS - CONFIG.LEAGUE_AVG_OPS) * CONFIG.PLATOON_SCALE;
+    matchup += Math.max(-CONFIG.PLATOON_CAP, Math.min(CONFIG.PLATOON_CAP, platoonAdv));
   } else {
-    // Fall back to generic platoon adjustment
     const sameSide = (batter.bats === "L" && oppPitcher.hand === "L") || (batter.bats === "R" && oppPitcher.hand === "R");
-    if (!sameSide) matchup += 0.7; else matchup -= 0.5;
+    if (!sameSide) matchup += CONFIG.PLATOON_ADVANTAGE; else matchup += CONFIG.PLATOON_PENALTY;
   }
-  // Pitcher quality using xERA (better than ERA)
-  const pitcherQuality = oppPitcher.xera || oppPitcher.era || 4.50;
-  if (pitcherQuality < 3.0)       matchup -= 1.0;
-  else if (pitcherQuality < 3.50) matchup -= 0.5;
-  else if (pitcherQuality > 5.00) matchup += 0.5;
-  else if (pitcherQuality > 5.50) matchup += 0.9;
+  // Pitcher quality using xERA
+  const pitcherQuality = oppPitcher.xera || oppPitcher.era || CONFIG.DEFAULT_ERA;
+  if (pitcherQuality < CONFIG.PITCHER_ELITE_ERA)      matchup += CONFIG.PITCHER_ELITE_ADJ;
+  else if (pitcherQuality < CONFIG.PITCHER_GOOD_ERA)   matchup += CONFIG.PITCHER_GOOD_ADJ;
+  else if (pitcherQuality > CONFIG.PITCHER_AWFUL_ERA)  matchup += CONFIG.PITCHER_AWFUL_ADJ;
+  else if (pitcherQuality > CONFIG.PITCHER_BAD_ERA)    matchup += CONFIG.PITCHER_BAD_ADJ;
   // K suppression
-  if ((oppPitcher.k9 || 0) > 10.5) matchup -= 1.2;
-  else if ((oppPitcher.k9 || 0) > 9.5) matchup -= 0.5;
+  if ((oppPitcher.k9 || 0) > CONFIG.K9_HIGH) matchup += CONFIG.K9_HIGH_ADJ;
+  else if ((oppPitcher.k9 || 0) > CONFIG.K9_MED) matchup += CONFIG.K9_MED_ADJ;
   matchup = Math.max(0.5, Math.min(5, matchup));
 
-  // ── Batting order / run environment (25%) ──
-  // Granular per-slot multipliers based on PA frequency and run production
-  const ORDER_MULT = { 1: 4.8, 2: 4.4, 3: 4.2, 4: 4.0, 5: 3.6, 6: 3.2, 7: 2.8, 8: 2.5, 9: 2.2 };
-  const orderMultiplier = ORDER_MULT[order] || 2.5;
-  // Vegas implied total adjustment
+  // ── Batting order / run environment ──
+  const orderMultiplier = CONFIG.ORDER_MULT[order] || CONFIG.ORDER_MULT_DEFAULT;
   let impliedAdj = 0;
   if (teamImpliedRuns) {
-    if (teamImpliedRuns > 6.0) impliedAdj = 0.5;
-    else if (teamImpliedRuns > 5.0) impliedAdj = 0.25;
-    else if (teamImpliedRuns < 3.5) impliedAdj = -0.5;
-    else if (teamImpliedRuns < 4.0) impliedAdj = -0.25;
+    if (teamImpliedRuns > CONFIG.VEGAS_BOOST_HIGH)     impliedAdj = CONFIG.VEGAS_ADJ_HIGH;
+    else if (teamImpliedRuns > CONFIG.VEGAS_BOOST_MED) impliedAdj = CONFIG.VEGAS_ADJ_MED;
+    else if (teamImpliedRuns < CONFIG.VEGAS_PEN_VLOW)  impliedAdj = CONFIG.VEGAS_ADJ_VLOW;
+    else if (teamImpliedRuns < CONFIG.VEGAS_PEN_LOW)   impliedAdj = CONFIG.VEGAS_ADJ_LOW;
   }
 
-  // ── Park + weather (15%) ──
+  // ── Park + weather ──
   const pf = parkFactor || 1.00;
   const envScore = Math.min(5, Math.max(1, (pf - 0.85) * 20 + (weatherAdj || 0)));
 
   // ── Base HRR ──
-  let score = talentScore * 0.30
-            + orderMultiplier * 0.25
-            + matchup * 0.30
-            + envScore * 0.15
+  let score = talentScore  * CONFIG.WEIGHT_TALENT
+            + orderMultiplier * CONFIG.WEIGHT_ORDER
+            + matchup      * CONFIG.WEIGHT_MATCHUP
+            + envScore     * CONFIG.WEIGHT_PARK
             + impliedAdj;
 
   // ── BvP career adjustment ──
-  if (batter.bvp && batter.bvp.ab >= 10) {
-    // Strong sample: 10+ AB career vs this pitcher
-    const bvpAdv = (batter.bvp.avg - (batter.avg || 0.250)) * 3;
-    score += Math.max(-0.5, Math.min(0.5, bvpAdv));
-  } else if (batter.bvp && batter.bvp.ab >= 5) {
-    // Small sample: 5-9 AB, reduced weight
-    const bvpAdv = (batter.bvp.avg - (batter.avg || 0.250)) * 1.5;
-    score += Math.max(-0.25, Math.min(0.25, bvpAdv));
+  if (batter.bvp && batter.bvp.ab >= CONFIG.BVP_STRONG_AB) {
+    const bvpAdv = (batter.bvp.avg - (batter.avg || CONFIG.DEFAULT_AVG)) * CONFIG.BVP_STRONG_SCALE;
+    score += Math.max(-CONFIG.BVP_STRONG_CAP, Math.min(CONFIG.BVP_STRONG_CAP, bvpAdv));
+  } else if (batter.bvp && batter.bvp.ab >= CONFIG.BVP_WEAK_AB) {
+    const bvpAdv = (batter.bvp.avg - (batter.avg || CONFIG.DEFAULT_AVG)) * CONFIG.BVP_WEAK_SCALE;
+    score += Math.max(-CONFIG.BVP_WEAK_CAP, Math.min(CONFIG.BVP_WEAK_CAP, bvpAdv));
   }
 
   // ── Hot/cold streak multiplier ──
-  if (batter.streakType === "hot")  score *= 1.12;
-  else if (batter.streakType === "warm")  score *= 1.05;
-  else if (batter.streakType === "cool")  score *= 0.95;
-  else if (batter.streakType === "cold")  score *= 0.88;
+  if (batter.streakType === "hot")       score *= CONFIG.STREAK_HOT;
+  else if (batter.streakType === "warm") score *= CONFIG.STREAK_WARM;
+  else if (batter.streakType === "cool") score *= CONFIG.STREAK_COOL;
+  else if (batter.streakType === "cold") score *= CONFIG.STREAK_COLD;
 
   // ── Injury penalty ──
-  if (injuredPlayers.has(id)) score *= 0.80;
+  if (injuredPlayers.has(id)) score *= CONFIG.INJURY_MULT;
 
   return Math.round(score * 100) / 100;
 }
@@ -491,7 +603,7 @@ async function getBoxscoreLineup(gamePk, teamId) {
       });
     }
     return lineup;
-  } catch { return []; }
+  } catch(e) { console.log(`  getBoxscoreLineup error (gamePk=${gamePk}, team=${teamId}): ${e.message}`); return []; }
 }
 
 // ── Build game data ────────────────────────────────────
@@ -520,17 +632,17 @@ async function buildGameData(mlbGames, oddsLines) {
         id: String(awayPRaw?.id || ""),
         name: awayPRaw?.fullName || "TBD",
         hand: awayPRaw?.pitchHand?.code || "R",
-        era:  awayPS?.era  || 4.50,
-        k9:   awayPS?.k9   || 8.5,
-        xera: awayPS?.xera || 4.50,
+        era:  awayPS?.era  || CONFIG.DEFAULT_ERA,
+        k9:   awayPS?.k9   || CONFIG.DEFAULT_K9,
+        xera: awayPS?.xera || CONFIG.DEFAULT_ERA,
       };
       const homePitcher = {
         id: String(homePRaw?.id || ""),
         name: homePRaw?.fullName || "TBD",
         hand: homePRaw?.pitchHand?.code || "R",
-        era:  homePS?.era  || 4.50,
-        k9:   homePS?.k9   || 8.5,
-        xera: homePS?.xera || 4.50,
+        era:  homePS?.era  || CONFIG.DEFAULT_ERA,
+        k9:   homePS?.k9   || CONFIG.DEFAULT_K9,
+        xera: homePS?.xera || CONFIG.DEFAULT_ERA,
       };
 
       // Lineups
@@ -544,7 +656,7 @@ async function buildGameData(mlbGames, oddsLines) {
       const enrichLineup = async (lineup, oppPitcherId) => {
         return Promise.all(lineup.map(async batter => {
           if (!batter.id || batter.name === "Lineup TBD") {
-            return { ...batter, ops: 0.720, avg: 0.250, wrcPlus: 100, vsLeftOPS: null, vsRightOPS: null, hitStreak: 0, last10Avg: 0.250, streakType: "neutral", hotStreak: false, barrelPct: null, hardHitPct: null, injured: false, bvp: null };
+            return { ...batter, ops: CONFIG.LEAGUE_AVG_OPS, avg: CONFIG.DEFAULT_AVG, wrcPlus: CONFIG.DEFAULT_WRC, vsLeftOPS: null, vsRightOPS: null, hitStreak: 0, last10Avg: CONFIG.DEFAULT_AVG, streakType: "neutral", hotStreak: false, barrelPct: null, hardHitPct: null, injured: false, bvp: null };
           }
           const [stats, bvp] = await Promise.all([
             getFullPlayerStats(batter.id),
@@ -552,11 +664,11 @@ async function buildGameData(mlbGames, oddsLines) {
           ]);
           return {
             ...batter,
-            ops:        stats?.ops        || 0.720,
-            avg:        stats?.avg        || 0.250,
-            obp:        stats?.obp        || 0.320,
-            slg:        stats?.slg        || 0.400,
-            wrcPlus:    stats?.wrcPlus    || 100,
+            ops:        stats?.ops        || CONFIG.LEAGUE_AVG_OPS,
+            avg:        stats?.avg        || CONFIG.DEFAULT_AVG,
+            obp:        stats?.obp        || CONFIG.DEFAULT_OBP,
+            slg:        stats?.slg        || CONFIG.DEFAULT_SLG,
+            wrcPlus:    stats?.wrcPlus    || CONFIG.DEFAULT_WRC,
             xwoba:      stats?.xwoba      || null,
             barrelPct:  stats?.barrelPct  || null,
             hardHitPct: stats?.hardHitPct || null,
@@ -564,7 +676,7 @@ async function buildGameData(mlbGames, oddsLines) {
             vsLeftOPS:  stats?.vsLeftOPS  || null,
             vsRightOPS: stats?.vsRightOPS || null,
             hitStreak:  stats?.hitStreak  || 0,
-            last10Avg:  stats?.last10Avg  || stats?.avg || 0.250,
+            last10Avg:  stats?.last10Avg  || stats?.avg || CONFIG.DEFAULT_AVG,
             last10AB:   stats?.last10AB   || 0,
             streakType: stats?.streakType || "neutral",
             hotStreak:  stats?.hotStreak  || false,
@@ -600,11 +712,11 @@ async function buildGameData(mlbGames, oddsLines) {
 
 // ── H/R/RBI Breakdown by batting order ────────────────
 function breakdownHRR(hrr, order) {
-  const w = order <= 1 ? { h: 0.42, r: 0.34, rbi: 0.24 }
-          : order <= 2 ? { h: 0.40, r: 0.30, rbi: 0.30 }
-          : order <= 3 ? { h: 0.37, r: 0.26, rbi: 0.37 }
-          : order <= 5 ? { h: 0.35, r: 0.22, rbi: 0.43 }
-          : { h: 0.40, r: 0.22, rbi: 0.38 };
+  const w = order <= 1 ? CONFIG.BREAKDOWN[1]
+          : order <= 2 ? CONFIG.BREAKDOWN[2]
+          : order <= 3 ? CONFIG.BREAKDOWN[3]
+          : order <= 5 ? CONFIG.BREAKDOWN[5]
+          : CONFIG.BREAKDOWN[9];
   return {
     hProj:   Math.round(hrr * w.h * 100) / 100,
     rProj:   Math.round(hrr * w.r * 100) / 100,
@@ -636,7 +748,7 @@ function enrichWithProjections(data) {
         batter.hProj    = bd.hProj;
         batter.rProj    = bd.rProj;
         batter.rbiProj  = bd.rbiProj;
-        batter.tier     = hrr >= 3.2 ? "A" : hrr >= 2.5 ? "B" : "C";
+        batter.tier     = hrr >= CONFIG.TIER_A ? "A" : hrr >= CONFIG.TIER_B ? "B" : "C";
         batter.team     = team.abbr;
         batter.gameId   = game.id;
         batter.gamePk   = game.gamePk;
@@ -675,8 +787,8 @@ function enrichWithProjections(data) {
       const orders = stack.map(p => p.order).sort((a, b) => a - b);
       let bonus = 0;
       for (let i = 1; i < orders.length; i++) {
-        if (orders[i] - orders[i - 1] === 1) bonus += 0.15; // consecutive slots
-        else if (orders[i] - orders[i - 1] === 2) bonus += 0.05; // one slot apart
+        if (orders[i] - orders[i - 1] === 1) bonus += CONFIG.STACK_ADJ_CONSECUTIVE;
+        else if (orders[i] - orders[i - 1] === 2) bonus += CONFIG.STACK_ADJ_ONE_APART;
       }
       return bonus;
     };
@@ -766,7 +878,7 @@ async function readExistingGist(octokit, gistId) {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed.date === TODAY_ET ? parsed : null;
-  } catch { return null; }
+  } catch(e) { console.log(`  readExistingGist error: ${e.message}`); return null; }
 }
 
 async function uploadToGist(octokit, gistId, data) {
@@ -873,7 +985,7 @@ async function main() {
                 actualResults[key] = parseInt(s.hits || 0) + parseInt(s.runs || 0) + parseInt(s.rbi || 0);
               }
             }
-          } catch { /* skip */ }
+          } catch(e) { console.log(`  Accuracy boxscore error (gamePk=${g.gamePk}): ${e.message}`); }
         }
         
         // Compute top 10 accuracy
