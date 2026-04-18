@@ -1059,6 +1059,13 @@ async function main() {
           tierAHitRate: tierATotal > 0 ? Math.round((tierAHits / tierATotal) * 1000) / 10 : null,
           tierBHitRate: tierBTotal > 0 ? Math.round((tierBHits / tierBTotal) * 1000) / 10 : null,
           gamesCompleted: finalGames.length,
+          totalPlayers: (existing.allPlayers || []).length,
+          // Compact top 10 snapshot with actual results
+          top10: (existing.dailyTop10 || []).filter(p => p.name !== "Lineup TBD").map(p => {
+            const key = p.name + "_" + p.team;
+            const actual = actualResults[key] ?? null;
+            return { name: p.name, team: p.team, pos: p.pos, order: p.order, hrr: p.hrr, tier: p.tier, actual };
+          }),
         };
         enriched.accuracyHistory.push(dayAccuracy);
         // Keep last 30 days
