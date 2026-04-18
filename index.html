@@ -250,6 +250,8 @@ const TIPS = {
   "Tier B":"Hit rate for Tier B players only",
   "Games":"Number of completed games that day",
   "Date":"Date of projections",
+  "Conf":"Confidence score (1.0-10.0). Measures data completeness: season PA, Savant stats, BvP history, streak, pitcher intel, lineup position, Vegas lines",
+  "Pick":"Pick score — blended HRR × confidence. Ranks plays by projected value weighted by data reliability",
 };
 function tip(label) {
   const t = TIPS[label];
@@ -258,6 +260,33 @@ function tip(label) {
 
 // ── Live boxscore cache ──────────────────────────────
 const LIVE_BS = {};  // gamePk -> boxscore data
+
+// ── WTD/MTD/YTD stats from accuracy history ──────────
+function periodStats(history) {
+  if (!history || !history.length) return { wtd: null, mtd: null, ytd: null };
+  const now = nowET();
+  const today = now.toLocaleDateString("en-CA");
+  const year = today.split("-")[0];
+  const month = today.split("-")[1];
+  const dayOfWeek = now.getDay(); // 0=Sun
+  const weekStart = new Date(now);
+  weekStart.setDate(weekStart.getDate() - dayOfWeek);
+  const weekStartStr = weekStart.toLocaleDateString("en-CA");
+
+  const calc = (days) => {
+    const valid = days.filter(d => d.top10HitRate != null);
+    if (!valid.length) return null;
+    return {
+      hitRate: Math.round(valid.reduce((s,d) => s + d.top10HitRate, 0) / valid.length * 10) / 10,
+      avgDiff: Math.round(valid.reduce((s,d) => s + (d.top10AvgDiff||0), 0) / valid.length * 100) / 100,
+      days: valid.length,
+    };
+  };
+  const wtdDays = history.filter(d => d.date >= weekStartStr && d.date < today);
+  const mtdDays = history.filter(d => d.date.startsWith(year + "-" + month) && d.date < today);
+  const ytdDays = history.filter(d => d.date.startsWith(year) && d.date < today);
+  return { wtd: calc(wtdDays), mtd: calc(mtdDays), ytd: calc(ytdDays) };
+}
 
 function tierB(t) {
   return t==="A" ? '<span class="ta">A</span>'
@@ -421,15 +450,25 @@ function renderTop() {
   }).length;
   const gamesWithLineups = (DATA.games||[]).filter(g => g.awayLineupAvailable || g.homeLineupAvailable).length;
   const totalGames = (DATA.games||[]).length;
+  const avgConf = realPlayers.length ? Math.round(realPlayers.reduce((s,p) => s + (p.confidence||0), 0) / realPlayers.length * 10) / 10 : 0;
+  const ps = periodStats(DATA.accuracyHistory);
 
   let h = `<div class="sg">
     <div class="sc"><div class="l">Today's Picks</div><div class="v">${realPlayers.length}</div></div>
-    <div class="sc"><div class="l">Tier A</div><div class="v" style="color:var(--green)">${cA}</div></div>
-    <div class="sc"><div class="l">Tier B</div><div class="v" style="color:var(--amber)">${cB}</div></div>
-    <div class="sc"><div class="l">Completed</div><div class="v" style="color:${done>=10?"var(--green)":done>0?"var(--amber)":"var(--muted)"}">${done}/${realPlayers.length}</div></div>
+    <div class="sc"><div class="l">Avg Confidence</div><div class="v" style="color:${avgConf>=9?'var(--green)':avgConf>=7?'var(--amber)':'var(--red)'}">${avgConf}</div></div>
+    <div class="sc"><div class="l">Completed</div><div class="v" style="color:${done>=realPlayers.length&&realPlayers.length>0?"var(--green)":done>0?"var(--amber)":"var(--muted)"}">${done}/${realPlayers.length}</div></div>
     <div class="sc"><div class="l">Top HRR</div><div class="v">${realPlayers.length?fmt(realPlayers[0]?.hrr):"—"}</div></div>
     <div class="sc"><div class="l">Lineups</div><div class="v" style="color:${gamesWithLineups===totalGames?'var(--green)':gamesWithLineups>0?'var(--amber)':'var(--muted)'}">${gamesWithLineups}/${totalGames}</div></div>
   </div>`;
+
+  // WTD / MTD / YTD tracker
+  if (ps.wtd || ps.mtd || ps.ytd) {
+    h += '<div class="sg" style="margin-bottom:1rem">';
+    if (ps.wtd) h += `<div class="sc"><div class="l">WTD Hit Rate</div><div class="v" style="color:${ps.wtd.hitRate>=50?'var(--green)':'var(--amber)'}">${ps.wtd.hitRate}%</div><div style="font-size:10px;color:var(--dim)">${ps.wtd.days}d · diff ${ps.wtd.avgDiff>=0?"+":""}${ps.wtd.avgDiff}</div></div>`;
+    if (ps.mtd) h += `<div class="sc"><div class="l">MTD Hit Rate</div><div class="v" style="color:${ps.mtd.hitRate>=50?'var(--green)':'var(--amber)'}">${ps.mtd.hitRate}%</div><div style="font-size:10px;color:var(--dim)">${ps.mtd.days}d · diff ${ps.mtd.avgDiff>=0?"+":""}${ps.mtd.avgDiff}</div></div>`;
+    if (ps.ytd) h += `<div class="sc"><div class="l">YTD Hit Rate</div><div class="v" style="color:${ps.ytd.hitRate>=50?'var(--green)':'var(--amber)'}">${ps.ytd.hitRate}%</div><div style="font-size:10px;color:var(--dim)">${ps.ytd.days}d · diff ${ps.ytd.avgDiff>=0?"+":""}${ps.ytd.avgDiff}</div></div>`;
+    h += '</div>';
+  }
 
   if (!realPlayers.length) {
     h += `<div class="none-state"><div class="icon">⚾</div><div class="msg">No confirmed lineups yet.<br>Lineups typically post 2-4 hours before game time.<br>The dashboard will update automatically as lineups are announced.</div></div>`;
@@ -439,7 +478,7 @@ function renderTop() {
   // Desktop table
   h += `<div class="tw" style="margin-bottom:.5rem"><table class="desktop-tbl"><thead><tr>
     <th${tip("#")}>#</th><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Pos")}>Pos</th><th${tip("Ord")}>Ord</th><th${tip("Opp SP")}>Opp SP</th><th${tip("Hand")}>Hand</th>
-    <th${tip("AVG")}>AVG</th><th${tip("L10")}>L10</th><th${tip("OPS")}>OPS</th><th${tip("wRC+")}>wRC+</th><th${tip("Barrel%")}>Barrel%</th><th${tip("BvP")}>BvP</th><th${tip("H")}>H</th><th${tip("R")}>R</th><th${tip("RBI")}>RBI</th><th${tip("Proj HRR")}>Proj HRR</th><th${tip("Actual")}>Actual</th><th${tip("Result")}>Result</th>
+    <th${tip("AVG")}>AVG</th><th${tip("L10")}>L10</th><th${tip("OPS")}>OPS</th><th${tip("wRC+")}>wRC+</th><th${tip("Barrel%")}>Barrel%</th><th${tip("BvP")}>BvP</th><th${tip("Conf")}>Conf</th><th${tip("H")}>H</th><th${tip("R")}>R</th><th${tip("RBI")}>RBI</th><th${tip("Proj HRR")}>Proj HRR</th><th${tip("Pick")}>Pick</th><th${tip("Actual")}>Actual</th><th${tip("Result")}>Result</th>
   </tr></thead><tbody>`;
 
   realPlayers.forEach((p,i) => {
@@ -479,10 +518,12 @@ function renderTop() {
       <td class="n">${p.wrcPlus||"—"}</td>
       <td class="n">${p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}</td>
       <td class="n" style="font-size:11px;color:${p.bvp&&p.bvp.avg>=.300?'var(--green)':p.bvp&&p.bvp.avg<.200?'var(--red)':'var(--muted)'}">${p.bvp?p.bvp.avg.toFixed(3)+' <span style="font-size:9px;color:var(--dim)">('+p.bvp.ab+'AB)</span>':"—"}</td>
+      <td class="n" style="font-weight:600;color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'}">${p.confidence||"—"}</td>
       <td class="n" style="color:var(--green)">${fmt(bd.h)}</td>
       <td class="n" style="color:var(--blue)">${fmt(bd.r)}</td>
       <td class="n" style="color:var(--amber)">${fmt(bd.rbi)}</td>
       <td class="n" style="font-size:14px;font-weight:700">${fmt(p.hrr)} <span style="font-size:10px;color:var(--muted)">(${Math.round(p.hrr)})</span></td>
+      <td class="n" style="font-size:12px;color:var(--muted)">${p.pickScore?fmt(p.pickScore):"—"}</td>
       <td class="n">${isFinal&&res?res.actual:"—"}</td>
       <td>${resultCell}</td>
     </tr>`;
@@ -521,12 +562,12 @@ function renderTop() {
       <div class="tp-right">
         <div class="tp-hrr" style="color:${hrrColor}">${hrrDisplay}</div>
         <div class="tp-breakdown">H${fmt(bd.h)} R${fmt(bd.r)} RBI${fmt(bd.rbi)}</div>
-        <div style="margin-top:2px">${tierB(p.tier)}</div>
+        <div style="margin-top:2px">${tierB(p.tier)} <span style="font-size:10px;font-family:var(--mono);color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'};margin-left:4px">${p.confidence||"—"}</span></div>
       </div>
     </div>`;
   });
   h += '</div>';
-  h += '<div class="note">Fixed top 10 picks for today · Green = actual HRR ≥ projected (rounded) · Red = below projected</div>';
+  h += '<div class="note">Top plays filtered by confidence ≥ 9.0 · Ranked by pick score (HRR × confidence) · Green = actual ≥ projected · Red = below</div>';
 
   // Previously Considered section
   const considered = DATA.consideredToday || [];
@@ -714,8 +755,8 @@ function applyFilters() {
     {k:"bats",l:"B"},{k:"oppSP",l:"Opp SP"},{k:"spHand",l:"Hand"},
     {k:"avg",l:"AVG"},{k:"last10Avg",l:"L10 AVG"},{k:"ops",l:"OPS"},{k:"wrcPlus",l:"wRC+"},
     {k:"barrelPct",l:"Barrel%"},{k:"hardHitPct",l:"HardHit%"},{k:"bvpDisplay",l:"BvP"},
-    {k:"hProj",l:"H Proj"},{k:"rProj",l:"R Proj"},{k:"rbiProj",l:"RBI Proj"},
-    {k:"hrr",l:"HRR"},{k:"tier",l:"Tier"}
+    {k:"confidence",l:"Conf"},{k:"hProj",l:"H Proj"},{k:"rProj",l:"R Proj"},{k:"rbiProj",l:"RBI Proj"},
+    {k:"hrr",l:"HRR"},{k:"pickScore",l:"Pick"},{k:"tier",l:"Tier"}
   ];
   let h = `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">${all.length} players shown</div>`;
   h += '<div class="tw"><table style="min-width:820px"><thead><tr>';
@@ -740,10 +781,12 @@ function applyFilters() {
       <td class="n">${p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}</td>
       <td class="n">${p.hardHitPct!=null?p.hardHitPct.toFixed(1)+"%":"—"}</td>
       <td class="n" style="font-size:11px;color:${p.bvp&&p.bvp.avg>=.300?'var(--green)':p.bvp&&p.bvp.avg<.200?'var(--red)':'var(--muted)'}">${p.bvpDisplay||"—"}</td>
+      <td class="n" style="font-weight:600;color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'}">${p.confidence||"—"}</td>
       <td class="n" style="color:var(--green)">${fmt(p.hProj)}</td>
       <td class="n" style="color:var(--blue)">${fmt(p.rProj)}</td>
       <td class="n" style="color:var(--amber)">${fmt(p.rbiProj)}</td>
       <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
+      <td class="n" style="color:var(--muted)">${p.pickScore?fmt(p.pickScore):"—"}</td>
       <td>${tierB(p.tier)}</td>
     </tr>`;
   });
@@ -861,7 +904,7 @@ function toggleHistoryDay(card) {
   }
 
   let t = '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
-  t += '<table><thead><tr><th style="cursor:default">#</th><th style="cursor:default">Player</th><th style="cursor:default">Team</th><th style="cursor:default">Pos</th><th style="cursor:default">Ord</th><th style="cursor:default">Proj HRR</th><th style="cursor:default">Tier</th><th style="cursor:default">Actual</th><th style="cursor:default">Result</th></tr></thead><tbody>';
+  t += '<table><thead><tr><th style="cursor:default">#</th><th style="cursor:default">Player</th><th style="cursor:default">Team</th><th style="cursor:default">Pos</th><th style="cursor:default">Ord</th><th style="cursor:default">Conf</th><th style="cursor:default">Proj HRR</th><th style="cursor:default">Tier</th><th style="cursor:default">Actual</th><th style="cursor:default">Result</th></tr></thead><tbody>';
   day.top10.forEach((p, i) => {
     const actual = p.actual;
     const hit = actual != null ? actual >= Math.round(p.hrr) : null;
@@ -875,6 +918,7 @@ function toggleHistoryDay(card) {
       <td>${chip(p.team)}</td>
       <td style="color:var(--muted);font-size:12px">${p.pos||"—"}</td>
       <td class="n" style="text-align:center">${p.order||"—"}</td>
+      <td class="n" style="font-weight:600;color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'}">${p.confidence||"—"}</td>
       <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
       <td>${tierB(p.tier)}</td>
       <td class="n" style="font-weight:700;color:${actual!=null&&actual>=3?'var(--green)':actual!=null&&actual>=2?'var(--amber)':'var(--muted)'}">${actual!=null?actual:"—"}</td>
@@ -1155,9 +1199,9 @@ function exportCSV() {
     const gm=DATA.games?.find(g=>g.id===p.gameId);
     const sp=gm?(p.team===gm.home.abbr?gm.away.pitcher:gm.home.pitcher):null;
     const bd=breakdown(p.hrr,p.order,p);
-    return `"${p.name}",${p.team},${p.pos},${p.order},${p.bats},"${sp?sp.name:"—"}",${sp?sp.hand:""},${(p.ops||0).toFixed(3)},${p.wrcPlus||0},${p.bvp?p.bvp.avg.toFixed(3):""},${p.bvp?p.bvp.ab:""},${fmt(bd.h)},${fmt(bd.r)},${fmt(bd.rbi)},${fmt(p.hrr)},${p.tier}`;
+    return `"${p.name}",${p.team},${p.pos},${p.order},${p.bats},"${sp?sp.name:"—"}",${sp?sp.hand:""},${(p.ops||0).toFixed(3)},${p.wrcPlus||0},${p.bvp?p.bvp.avg.toFixed(3):""},${p.bvp?p.bvp.ab:""},${p.confidence||""},${fmt(bd.h)},${fmt(bd.r)},${fmt(bd.rbi)},${fmt(p.hrr)},${p.pickScore?fmt(p.pickScore):""},${p.tier}`;
   });
-  const csv=["Player,Team,Pos,Order,Bats,Opp SP,SP Hand,OPS,wRC+,BvP AVG,BvP AB,H Proj,R Proj,RBI Proj,HRR,Tier",...rows].join("\n");
+  const csv=["Player,Team,Pos,Order,Bats,Opp SP,SP Hand,OPS,wRC+,BvP AVG,BvP AB,Conf,H Proj,R Proj,RBI Proj,HRR,Pick,Tier",...rows].join("\n");
   const a=document.createElement("a");
   a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
   a.download="hrr-"+(DATA.date||"today")+".csv";
