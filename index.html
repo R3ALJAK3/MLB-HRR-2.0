@@ -183,6 +183,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
   <button class="tab" data-p="slate">Game Slate</button>
   <button class="tab" data-p="all">All Players</button>
   <button class="tab" data-p="stacks">Stacks</button>
+  <button class="tab" data-p="history">History</button>
   <button class="tab" data-p="live">Live <span class="tbadge" id="lct">—</span></button>
   <button class="tab" data-p="results">Results <span class="tbadge" id="rct">—</span></button>
 </div>
@@ -192,6 +193,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
   <div id="p-slate"   class="panel"></div>
   <div id="p-all"     class="panel"></div>
   <div id="p-stacks"  class="panel"></div>
+  <div id="p-history" class="panel"></div>
   <div id="p-live"    class="panel"></div>
   <div id="p-results" class="panel"></div>
   <div id="p-load" class="loading"><div class="spinner"></div><div class="ltxt">Loading...</div></div>
@@ -367,7 +369,7 @@ function renderAll() {
   const b=$("hbadge"); b.textContent=stale?"STALE":"LIVE"; b.className="badge "+(stale?"bs":"bl");
   $("tabs").style.display="flex";
   setLoad(false);
-  renderTop(); renderSlate(); renderAll2(); renderStacks();
+  renderTop(); renderSlate(); renderAll2(); renderStacks(); renderHistory();
   if (Object.keys(TOP10_RESULTS).length > 0) renderTop(); // re-render with cached results
 }
 
@@ -534,7 +536,7 @@ function renderTop() {
         <span style="font-size:11px;background:var(--abg);color:var(--amber);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-weight:700">PREVIOUSLY CONSIDERED</span>
         <span style="font-size:11px;color:var(--dim)">These players were in the top 10 earlier today before being replaced</span>
       </div>`;
-    h += '<div class="tw"><table><thead><tr><th${tip("#")}>#</th><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Pos")}>Pos</th><th${tip("Opp SP")}>Opp SP</th><th${tip("Hand")}>Hand</th><th${tip("Proj HRR")}>Proj HRR</th><th${tip("Actual")}>Actual</th><th${tip("Result")}>Result</th></tr></thead><tbody>';
+    h += `<div class="tw"><table><thead><tr><th${tip("#")}>#</th><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Pos")}>Pos</th><th${tip("Opp SP")}>Opp SP</th><th${tip("Hand")}>Hand</th><th${tip("Proj HRR")}>Proj HRR</th><th${tip("Actual")}>Actual</th><th${tip("Result")}>Result</th></tr></thead><tbody>`;
     considered.forEach((p, i) => {
       const gm = DATA.games?.find(g=>g.id===p.gameId);
       const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
@@ -775,7 +777,114 @@ function renderStacks() {
   $("p-stacks").innerHTML = sec(s2,"2-Player Stacks")+sec(s3,"3-Player Stacks");
 }
 
-// ── LIVE ──────────────────────────────────────────────
+// ── HISTORY ──────────────────────────────────────────
+function renderHistory() {
+  const history = DATA?.accuracyHistory || [];
+  if (!history.length) {
+    $("p-history").innerHTML = '<div class="none-state"><div class="icon">📊</div><div class="msg">No historical data yet.<br>History builds automatically as each day completes.</div></div>';
+    return;
+  }
+
+  // Overall summary
+  const validDays = history.filter(d => d.top10HitRate != null);
+  let h = '';
+  if (validDays.length >= 1) {
+    const avgHitRate = Math.round(validDays.reduce((s,d) => s + d.top10HitRate, 0) / validDays.length * 10) / 10;
+    const avgDiff = Math.round(validDays.reduce((s,d) => s + (d.top10AvgDiff||0), 0) / validDays.length * 100) / 100;
+    const bestDay = validDays.reduce((best,d) => d.top10HitRate > best.top10HitRate ? d : best);
+    const worstDay = validDays.reduce((worst,d) => d.top10HitRate < worst.top10HitRate ? d : worst);
+    const totalPicks = validDays.length * 10;
+    const totalHits = validDays.reduce((s,d) => s + Math.round(d.top10HitRate / 10), 0);
+    h += `<div class="sg">
+      <div class="sc"><div class="l">Days tracked</div><div class="v">${validDays.length}</div></div>
+      <div class="sc"><div class="l">Avg hit rate</div><div class="v" style="color:${avgHitRate>=50?'var(--green)':'var(--amber)'}">${avgHitRate}%</div></div>
+      <div class="sc"><div class="l">Avg diff</div><div class="v" style="color:${avgDiff>=0?'var(--green)':'var(--red)'}">${avgDiff>=0?"+":""}${avgDiff}</div></div>
+      <div class="sc"><div class="l">Best day</div><div class="v" style="color:var(--green)">${bestDay.top10HitRate}%<div style="font-size:10px;color:var(--dim);font-weight:400">${bestDay.date}</div></div></div>
+      <div class="sc"><div class="l">Worst day</div><div class="v" style="color:var(--red)">${worstDay.top10HitRate}%<div style="font-size:10px;color:var(--dim);font-weight:400">${worstDay.date}</div></div></div>
+    </div>`;
+  }
+
+  // Day-by-day cards (newest first)
+  [...history].reverse().forEach(day => {
+    const hr = day.top10HitRate != null ? day.top10HitRate + "%" : "—";
+    const hrColor = day.top10HitRate >= 50 ? "var(--green)" : day.top10HitRate >= 30 ? "var(--amber)" : "var(--red)";
+    const diffStr = day.top10AvgDiff != null ? (day.top10AvgDiff >= 0 ? "+" : "") + day.top10AvgDiff : "—";
+    const diffColor = (day.top10AvgDiff||0) >= 0 ? "var(--green)" : "var(--red)";
+
+    h += `<div class="gc" style="margin-bottom:8px;cursor:pointer" onclick="toggleHistoryDay(this)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap">
+        <div>
+          <div style="font-size:15px;font-weight:700">${day.date}<span class="chevron" style="margin-left:6px">▼</span></div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">${day.gamesCompleted||"?"} games · ${day.totalPlayers||"?"} players</div>
+        </div>
+        <div style="display:flex;gap:16px;align-items:center">
+          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Hit rate</div><div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${hrColor}">${hr}</div></div>
+          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Avg diff</div><div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${diffColor}">${diffStr}</div></div>
+          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Tier A</div><div style="font-size:14px;font-weight:600;font-family:var(--mono);color:var(--muted)">${day.tierAHitRate!=null?day.tierAHitRate+"%":"—"}</div></div>
+        </div>
+      </div>
+      <div class="hist-detail" style="display:none"></div>
+    </div>`;
+
+    // Pre-build the top 10 detail table for this day (hidden until clicked)
+    if (day.top10 && day.top10.length) {
+      const detailId = "hd-" + day.date;
+      // We'll build it on click via toggleHistoryDay
+    }
+  });
+
+  h += '<div class="note" style="margin-top:1rem">Click any day to see the top 10 picks and results. History saves automatically on each new day.</div>';
+  $("p-history").innerHTML = h;
+}
+
+function toggleHistoryDay(card) {
+  const detail = card.querySelector(".hist-detail");
+  const chev = card.querySelector(".chevron");
+  if (!detail) return;
+  if (detail.style.display !== "none") {
+    detail.style.display = "none";
+    if (chev) chev.textContent = "▼";
+    return;
+  }
+  if (chev) chev.textContent = "▲";
+
+  // If already built, just show
+  if (detail.innerHTML) { detail.style.display = "block"; return; }
+
+  // Find this day in history
+  const dateStr = card.querySelector("div[style*='font-size:15px']")?.textContent?.replace("▼","").replace("▲","").trim();
+  const day = (DATA?.accuracyHistory || []).find(d => d.date === dateStr);
+  if (!day || !day.top10 || !day.top10.length) {
+    detail.innerHTML = '<div style="padding:8px;color:var(--dim);font-size:12px;border-top:1px solid var(--border);margin-top:8px">No top 10 data saved for this day.</div>';
+    detail.style.display = "block";
+    return;
+  }
+
+  let t = '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
+  t += '<table><thead><tr><th style="cursor:default">#</th><th style="cursor:default">Player</th><th style="cursor:default">Team</th><th style="cursor:default">Pos</th><th style="cursor:default">Ord</th><th style="cursor:default">Proj HRR</th><th style="cursor:default">Tier</th><th style="cursor:default">Actual</th><th style="cursor:default">Result</th></tr></thead><tbody>';
+  day.top10.forEach((p, i) => {
+    const actual = p.actual;
+    const hit = actual != null ? actual >= Math.round(p.hrr) : null;
+    const resultCell = actual != null
+      ? (hit ? `<span style="color:var(--green);font-weight:700">✓ ${actual}</span>` : `<span style="color:var(--red);font-weight:700">✗ ${actual}</span>`)
+      : "—";
+    const rowBg = hit === true ? "background:rgba(34,197,94,.07);" : hit === false ? "background:rgba(248,113,113,.07);" : "";
+    t += `<tr style="${rowBg}">
+      <td class="n" style="color:var(--dim)">${i+1}</td>
+      <td style="font-weight:500">${p.name}</td>
+      <td>${chip(p.team)}</td>
+      <td style="color:var(--muted);font-size:12px">${p.pos||"—"}</td>
+      <td class="n" style="text-align:center">${p.order||"—"}</td>
+      <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
+      <td>${tierB(p.tier)}</td>
+      <td class="n" style="font-weight:700;color:${actual!=null&&actual>=3?'var(--green)':actual!=null&&actual>=2?'var(--amber)':'var(--muted)'}">${actual!=null?actual:"—"}</td>
+      <td>${resultCell}</td>
+    </tr>`;
+  });
+  t += '</tbody></table></div>';
+  detail.innerHTML = t;
+  detail.style.display = "block";
+}
 function renderLive() {
   const games = Object.values(LIVE);
   if (!games.length) { $("p-live").innerHTML='<p style="color:var(--muted);padding:1rem">Checking scores... updates every 60s.</p>'; return; }
@@ -972,7 +1081,7 @@ async function renderResults() {
   </div>`;
 
   h+='<div style="font-size:12px;color:var(--muted);margin-bottom:.75rem">Actual H+R+RBI vs projected HRR. Hit = actual ≥ rounded projection. "—" = bench/pinch-hit not in lineup.</div>';
-  h+='<div class="tw"><table><thead><tr><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Tier")}>Tier</th><th${tip("H")}>H</th><th${tip("R")}>R</th><th${tip("RBI")}>RBI</th><th${tip("Actual")}>Actual</th><th${tip("Proj HRR")}>Projected</th><th${tip("Diff")}>Diff</th></tr></thead><tbody>';
+  h+=`<div class="tw"><table><thead><tr><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Tier")}>Tier</th><th${tip("H")}>H</th><th${tip("R")}>R</th><th${tip("RBI")}>RBI</th><th${tip("Actual")}>Actual</th><th${tip("Proj HRR")}>Projected</th><th${tip("Diff")}>Diff</th></tr></thead><tbody>`;
   if(!rows.length){h+='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:1.5rem">No data yet.</td></tr>';}
   else{rows.forEach(r=>{
     const diff=r.proj!==null?Math.round((r.actual-r.proj)*100)/100:null;
@@ -1013,7 +1122,7 @@ function renderAccuracyHistory() {
     </div>`;
   }
 
-  h += '<div class="tw"><table><thead><tr><th${tip("Date")}>Date</th><th${tip("Top 10 Hit%")}>Top 10 Hit%</th><th${tip("Avg Diff")}>Avg Diff</th><th${tip("Tier A")}>Tier A</th><th${tip("Tier B")}>Tier B</th><th${tip("Games")}>Games</th></tr></thead><tbody>';
+  h += `<div class="tw"><table><thead><tr><th${tip("Date")}>Date</th><th${tip("Top 10 Hit%")}>Top 10 Hit%</th><th${tip("Avg Diff")}>Avg Diff</th><th${tip("Tier A")}>Tier A</th><th${tip("Tier B")}>Tier B</th><th${tip("Games")}>Games</th></tr></thead><tbody>`;
   [...history].reverse().forEach(d => {
     const hr = d.top10HitRate != null ? d.top10HitRate + "%" : "—";
     const hrColor = d.top10HitRate >= 60 ? "var(--green)" : d.top10HitRate >= 40 ? "var(--amber)" : "var(--red)";
