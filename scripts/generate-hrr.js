@@ -133,6 +133,41 @@ const CONFIG = {
   STACK_ADJ_CONSECUTIVE: 0.15,
   STACK_ADJ_ONE_APART:   0.05,
 
+  // Confidence score factors (decimal 1.0-10.0)
+  CONF_PA_SCALE:          100,    // PA to reach max season depth score
+  CONF_PA_MAX:            2.0,    // max points from season PA
+  CONF_SAVANT_XWOBA:      0.5,
+  CONF_SAVANT_BARREL:     0.35,
+  CONF_SAVANT_HARDHIT:    0.3,
+  CONF_SAVANT_EV:         0.2,
+  CONF_SPLITS_EXIST:      0.15,
+  CONF_L10_SCALE:         20,     // L10 AB to reach max recent form
+  CONF_L10_MAX:           0.5,
+  CONF_STREAK_HOT:        0.45,
+  CONF_STREAK_WARM:       0.25,
+  CONF_HITSTREAK_MIN:     3,
+  CONF_HITSTREAK_BONUS:   0.2,
+  CONF_BVP_SCALE:         12,     // BvP AB to reach max
+  CONF_BVP_MAX:           1.0,
+  CONF_PITCHER_XERA:      0.6,
+  CONF_PITCHER_KNOWN:     0.4,
+  CONF_ORDER_TOP:         0.7,    // order 1-2
+  CONF_ORDER_MID:         0.5,    // order 3-5
+  CONF_ORDER_LOW:         0.3,    // order 6-7
+  CONF_ORDER_BOT:         0.1,    // order 8-9
+  CONF_VEGAS:             0.5,
+  CONF_NOT_INJURED:       0.5,
+  CONF_LINEUP_CONFIRMED:  0.3,
+  CONF_CONVERGE_PA_SAVANT:    0.5,   // PA>=80 + xwOBA
+  CONF_CONVERGE_PA_L10:      0.4,   // PA>=50 + L10>=15
+  CONF_CONVERGE_BVP_SAVANT:  0.35,  // BvP>=8 + xwOBA
+  CONF_CONVERGE_FULL_SAVANT: 0.25,  // PA>=150 + barrel + hardHit
+  CONF_PENALTY_TINY:         -1.0,  // PA < 20
+  CONF_PENALTY_SMALL:        -0.3,  // PA < 40
+  CONF_TOP10_FLOOR:          9.0,   // minimum confidence for top plays
+  CONF_PICK_HRR_WEIGHT:      0.70,  // HRR weight in pickScore
+  CONF_PICK_CONF_WEIGHT:     0.03,  // confidence multiplier in pickScore
+
   // H/R/RBI breakdown weights by batting order
   BREAKDOWN: {
     1: { h: 0.42, r: 0.34, rbi: 0.24 },
@@ -598,7 +633,62 @@ function computeHRR(batter, oppPitcher, parkFactor, weatherAdj, teamImpliedRuns)
   return score;
 }
 
-// ── Schedule ───────────────────────────────────────────
+// ── Confidence score (1.0-10.0) ───────────────────────
+// Measures data completeness backing the projection, not projection quality
+function computeConfidence(batter, oppPitcher, hasVegas) {
+  let conf = 0;
+
+  // ── Season depth (max 2.0)
+  const pa = batter.pa || 0;
+  conf += Math.min(pa / CONFIG.CONF_PA_SCALE, 1.0) * CONFIG.CONF_PA_MAX;
+
+  // ── Statcast profile (max ~1.5)
+  if (batter.xwoba != null)      conf += CONFIG.CONF_SAVANT_XWOBA;
+  if (batter.barrelPct != null)  conf += CONFIG.CONF_SAVANT_BARREL;
+  if (batter.hardHitPct != null) conf += CONFIG.CONF_SAVANT_HARDHIT;
+  if (batter.exitVelo != null)   conf += CONFIG.CONF_SAVANT_EV;
+  if (batter.vsLeftOPS != null || batter.vsRightOPS != null) conf += CONFIG.CONF_SPLITS_EXIST;
+
+  // ── Recent form (max ~1.15)
+  conf += Math.min((batter.last10AB || 0) / CONFIG.CONF_L10_SCALE, 1.0) * CONFIG.CONF_L10_MAX;
+  if (batter.streakType === "hot")       conf += CONFIG.CONF_STREAK_HOT;
+  else if (batter.streakType === "warm") conf += CONFIG.CONF_STREAK_WARM;
+  if ((batter.hitStreak || 0) >= CONFIG.CONF_HITSTREAK_MIN) conf += CONFIG.CONF_HITSTREAK_BONUS;
+
+  // ── Matchup intel (max ~2.0)
+  if (batter.bvp && batter.bvp.ab > 0) {
+    conf += Math.min(batter.bvp.ab / CONFIG.CONF_BVP_SCALE, 1.0) * CONFIG.CONF_BVP_MAX;
+  }
+  if (oppPitcher && oppPitcher.xera && oppPitcher.name !== "TBD") conf += CONFIG.CONF_PITCHER_XERA;
+  if (oppPitcher && oppPitcher.name !== "TBD") conf += CONFIG.CONF_PITCHER_KNOWN;
+
+  // ── Game context (max ~2.0)
+  const order = batter.order || 9;
+  if (order <= 2)      conf += CONFIG.CONF_ORDER_TOP;
+  else if (order <= 5) conf += CONFIG.CONF_ORDER_MID;
+  else if (order <= 7) conf += CONFIG.CONF_ORDER_LOW;
+  else                 conf += CONFIG.CONF_ORDER_BOT;
+  if (hasVegas)        conf += CONFIG.CONF_VEGAS;
+  if (!batter.injured) conf += CONFIG.CONF_NOT_INJURED;
+  conf += CONFIG.CONF_LINEUP_CONFIRMED;
+
+  // ── Data convergence bonus (max ~1.5)
+  if (pa >= 80 && batter.xwoba != null) conf += CONFIG.CONF_CONVERGE_PA_SAVANT;
+  if (pa >= 50 && (batter.last10AB || 0) >= 15) conf += CONFIG.CONF_CONVERGE_PA_L10;
+  if (batter.bvp && batter.bvp.ab >= 8 && batter.xwoba != null) conf += CONFIG.CONF_CONVERGE_BVP_SAVANT;
+  if (pa >= 150 && batter.barrelPct != null && batter.hardHitPct != null) conf += CONFIG.CONF_CONVERGE_FULL_SAVANT;
+
+  // ── Sample size penalties
+  if (pa < 20)      conf += CONFIG.CONF_PENALTY_TINY;
+  else if (pa < 40) conf += CONFIG.CONF_PENALTY_SMALL;
+
+  return Math.round(Math.min(10, Math.max(1, conf)) * 10) / 10;
+}
+
+// ── Pick score (blended HRR + confidence) ─────────────
+function computePickScore(hrr, confidence) {
+  return Math.round(hrr * (CONFIG.CONF_PICK_HRR_WEIGHT + confidence * CONFIG.CONF_PICK_CONF_WEIGHT) * 100) / 100;
+}
 async function getTodayGames() {
   console.log(`Fetching schedule for ${TODAY_ET}...`);
   const data = await mlbFetch(`/schedule?sportId=1&date=${TODAY_ET}&hydrate=team,venue,probablePitcher`);
@@ -686,7 +776,7 @@ async function buildGameData(mlbGames, oddsLines) {
       const enrichLineup = async (lineup, oppPitcherId) => {
         return Promise.all(lineup.map(batter => limit(async () => {
           if (!batter.id || batter.name === "Lineup TBD") {
-            return { ...batter, ops: CONFIG.LEAGUE_AVG_OPS, avg: CONFIG.DEFAULT_AVG, wrcPlus: CONFIG.DEFAULT_WRC, vsLeftOPS: null, vsRightOPS: null, hitStreak: 0, last10Avg: CONFIG.DEFAULT_AVG, streakType: "neutral", hotStreak: false, barrelPct: null, hardHitPct: null, injured: false, bvp: null };
+            return { ...batter, ops: CONFIG.LEAGUE_AVG_OPS, avg: CONFIG.DEFAULT_AVG, wrcPlus: CONFIG.DEFAULT_WRC, pa: 0, vsLeftOPS: null, vsRightOPS: null, hitStreak: 0, last10Avg: CONFIG.DEFAULT_AVG, streakType: "neutral", hotStreak: false, barrelPct: null, hardHitPct: null, exitVelo: null, injured: false, bvp: null };
           }
           const [stats, bvp] = await Promise.all([
             getFullPlayerStats(batter.id),
@@ -698,6 +788,7 @@ async function buildGameData(mlbGames, oddsLines) {
             avg:        stats?.avg        || CONFIG.DEFAULT_AVG,
             obp:        stats?.obp        || CONFIG.DEFAULT_OBP,
             slg:        stats?.slg        || CONFIG.DEFAULT_SLG,
+            pa:         stats?.pa         || 0,
             wrcPlus:    stats?.wrcPlus    || CONFIG.DEFAULT_WRC,
             xwoba:      stats?.xwoba      || null,
             barrelPct:  stats?.barrelPct  || null,
@@ -770,21 +861,26 @@ function enrichWithProjections(data) {
       const team      = game[side];
       const opp       = game[side === "away" ? "home" : "away"];
       const implied   = side === "away" ? awayImplied : homeImplied;
+      const hasVegas  = game.oddsLine != null;
       team.lineup.forEach(batter => {
         const isTBD = !batter.id || batter.name === "Lineup TBD";
         const hrr = computeHRR(batter, opp.pitcher, game.parkFactor, game.weatherAdj, implied);
         const bd  = breakdownHRR(hrr, batter.order);
-        batter.hrr      = hrr;
-        batter.hProj    = bd.hProj;
-        batter.rProj    = bd.rProj;
-        batter.rbiProj  = bd.rbiProj;
-        batter.tier     = hrr >= CONFIG.TIER_A ? "A" : hrr >= CONFIG.TIER_B ? "B" : "C";
-        batter.team     = team.abbr;
-        batter.gameId   = game.id;
-        batter.gamePk   = game.gamePk;
-        batter.gameTime = game.time;
+        const confidence = isTBD ? 0 : computeConfidence(batter, opp.pitcher, hasVegas);
+        const pickScore  = computePickScore(hrr, confidence);
+        batter.hrr        = hrr;
+        batter.hProj      = bd.hProj;
+        batter.rProj      = bd.rProj;
+        batter.rbiProj    = bd.rbiProj;
+        batter.tier       = hrr >= CONFIG.TIER_A ? "A" : hrr >= CONFIG.TIER_B ? "B" : "C";
+        batter.confidence = confidence;
+        batter.pickScore  = pickScore;
+        batter.team       = team.abbr;
+        batter.gameId     = game.id;
+        batter.gamePk     = game.gamePk;
+        batter.gameTime   = game.time;
         batter.impliedRuns = implied;
-        batter.isTBD    = isTBD;
+        batter.isTBD      = isTBD;
         // Only include real players in rankings
         if (!isTBD) {
           allPlayers.push(batter);
@@ -793,7 +889,8 @@ function enrichWithProjections(data) {
     });
   });
 
-  allPlayers.sort((a, b) => b.hrr - a.hrr);
+  // Sort by pickScore (blended HRR + confidence)
+  allPlayers.sort((a, b) => b.pickScore - a.pickScore);
   data.topPlays    = allPlayers.slice(0, 15);
   data.allPlayers  = allPlayers;
 
@@ -956,11 +1053,15 @@ async function main() {
   const data     = { date: TODAY_ET, generatedAt: new Date().toISOString(), games };
   const enriched = enrichWithProjections(data);
 
-  // Top 10 locking with per-player game-start detection
+  // Top 10 locking with per-player game-start detection + confidence floor
   const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const freshTop10 = enriched.allPlayers.slice(0, 10);
+  // Only players meeting confidence floor, sorted by pickScore, max 10
+  const confQualified = enriched.allPlayers.filter(p => (p.confidence || 0) >= CONFIG.CONF_TOP10_FLOOR);
+  const freshTop10 = confQualified.slice(0, 10);
   const freshMap   = Object.fromEntries(freshTop10.map(p => [p.name+"_"+p.team, p]));
   const existing   = await readExistingGist(octokit, process.env.GIST_ID);
+
+  console.log(`  Confidence ≥ ${CONFIG.CONF_TOP10_FLOOR}: ${confQualified.length} players qualify for top plays`);
 
   // Filter out TBD placeholders from any existing top10 (from pre-fix runs)
   const existingReal = (existing?.dailyTop10 || []).filter(p => p.name && p.name !== "Lineup TBD" && !p.isTBD);
@@ -971,21 +1072,24 @@ async function main() {
       const started = ep.gamePk && mlbGames.some(g => g.gamePk === ep.gamePk && new Date(g.gameDate) < nowET);
       return started ? ep : (freshMap[ep.name+"_"+ep.team] || ep);
     });
-    // If merged has fewer than 10 (because TBDs were stripped), fill from fresh
+    // Only fill from confidence-qualified players
     const mergedKeys = new Set(merged.map(p => p.name+"_"+p.team));
-    const fillers = enriched.allPlayers.filter(p => !mergedKeys.has(p.name+"_"+p.team));
+    const fillers = confQualified.filter(p => !mergedKeys.has(p.name+"_"+p.team));
     while (merged.length < 10 && fillers.length > 0) {
       merged.push(fillers.shift());
     }
-    // Re-sort unlocked slots by HRR (keep locked in place)
-    enriched.dailyTop10 = merged;
-    const locked = merged.filter(ep => {
+    // Remove any merged entries that no longer meet confidence floor (unless locked)
+    enriched.dailyTop10 = merged.filter(ep => {
+      const started = ep.gamePk && mlbGames.some(g => g.gamePk === ep.gamePk && new Date(g.gameDate) < nowET);
+      return started || (ep.confidence || 0) >= CONFIG.CONF_TOP10_FLOOR;
+    });
+    const locked = enriched.dailyTop10.filter(ep => {
       return ep.gamePk && mlbGames.some(g => g.gamePk === ep.gamePk && new Date(g.gameDate) < nowET);
     }).length;
-    console.log(`Top 10: ${locked} locked, ${merged.length - locked} flexible, ${merged.length} total`);
+    console.log(`Top plays: ${enriched.dailyTop10.length} picks (${locked} locked, ${enriched.dailyTop10.length - locked} flexible)`);
   } else {
     enriched.dailyTop10 = freshTop10;
-    console.log(`Initial top 10 set (${freshTop10.length} players)`);
+    console.log(`Initial top plays: ${freshTop10.length} picks (conf ≥ ${CONFIG.CONF_TOP10_FLOOR})`);
   }
 
   // Track previously considered players (exclude TBDs)
@@ -1064,7 +1168,7 @@ async function main() {
           top10: (existing.dailyTop10 || []).filter(p => p.name !== "Lineup TBD").map(p => {
             const key = p.name + "_" + p.team;
             const actual = actualResults[key] ?? null;
-            return { name: p.name, team: p.team, pos: p.pos, order: p.order, hrr: p.hrr, tier: p.tier, actual };
+            return { name: p.name, team: p.team, pos: p.pos, order: p.order, hrr: p.hrr, tier: p.tier, confidence: p.confidence || null, pickScore: p.pickScore || null, actual };
           }),
         };
         enriched.accuracyHistory.push(dayAccuracy);
