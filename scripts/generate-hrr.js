@@ -111,6 +111,15 @@ const CONFIG = {
   // Injury penalty
   INJURY_MULT:         0.80,
 
+  // Home/away adjustment
+  HOME_BONUS:          0.15,    // home batters get slight boost
+
+  // Pitcher recent form (last 3 starts)
+  PITCHER_L3_GOOD:     3.0,     // L3 ERA below this = pitcher is sharp
+  PITCHER_L3_BAD:      5.5,     // L3 ERA above this = pitcher is struggling
+  PITCHER_L3_GOOD_ADJ: -0.3,    // penalty to batter matchup (pitcher is sharp)
+  PITCHER_L3_BAD_ADJ:  0.4,     // bonus to batter matchup (pitcher struggling)
+
   // Weather thresholds
   WIND_STRONG:         15,     // mph
   WIND_NOTABLE:        8,
@@ -487,15 +496,31 @@ async function getFullPlayerStats(playerId) {
 async function getPitcherStats(pitcherId) {
   if (!pitcherId) return null;
   try {
-    const data = await mlbFetch(`/people/${pitcherId}?hydrate=stats(group=pitching,type=season,season=${CURRENT_YEAR})`);
-    const stats = data.people?.[0]?.stats?.find(s => s.type?.displayName === "season")?.splits?.[0]?.stat;
+    const [seasonData, logData] = await Promise.all([
+      mlbFetch(`/people/${pitcherId}?hydrate=stats(group=pitching,type=season,season=${CURRENT_YEAR})`),
+      mlbFetch(`/people/${pitcherId}/stats?stats=gameLog&season=${CURRENT_YEAR}&group=pitching&limit=5`).catch(() => null),
+    ]);
+    const stats = seasonData.people?.[0]?.stats?.find(s => s.type?.displayName === "season")?.splits?.[0]?.stat;
     if (!stats) return null;
     const ip = safeFloat(stats.inningsPitched, 0);
     const era = safeFloat(stats.era, CONFIG.DEFAULT_ERA);
     const k9  = ip > 0 ? Math.round((parseInt(stats.strikeOuts||0) / ip) * 9 * 10) / 10 : CONFIG.DEFAULT_K9;
     const sv  = savantPitchers[String(pitcherId)];
-    const xera = sv?.xera || era; // fall back to ERA if no Savant data
-    return { era: Math.round(era * 100) / 100, k9, xera: Math.round(xera * 100) / 100 };
+    const xera = sv?.xera || era;
+
+    // Last 3 starts
+    const logs = logData?.stats?.[0]?.splits || [];
+    const last3 = [];
+    for (const g of logs.slice(0, 3)) {
+      const s = g.stat;
+      const gIP = safeFloat(s?.inningsPitched, 0);
+      const gER = parseInt(s?.earnedRuns || 0);
+      const gERA = gIP > 0 ? Math.round((gER / gIP) * 9 * 100) / 100 : null;
+      last3.push({ ip: gIP, era: gERA, k: parseInt(s?.strikeOuts||0), h: parseInt(s?.hits||0), bb: parseInt(s?.baseOnBalls||0), date: g.date || null });
+    }
+    const last3ERA = last3.length >= 2 ? Math.round(last3.reduce((s,g) => s + (g.era||0), 0) / last3.length * 100) / 100 : null;
+
+    return { era: Math.round(era * 100) / 100, k9, xera: Math.round(xera * 100) / 100, last3, last3ERA };
   } catch(e) { console.log(`  getPitcherStats error (${pitcherId}): ${e.message}`); return null; }
 }
 
@@ -547,7 +572,7 @@ async function getBvPStats(batterId, pitcherId) {
 }
 
 // ── Enhanced HRR model ─────────────────────────────────
-function computeHRR(batter, oppPitcher, parkFactor, weatherAdj, teamImpliedRuns) {
+function computeHRR(batter, oppPitcher, parkFactor, weatherAdj, teamImpliedRuns, isHome) {
   const id    = String(batter.id || "");
   const sv    = savantBatters[id] || {};
   const ops   = batter.ops || CONFIG.LEAGUE_AVG_OPS;
@@ -584,6 +609,11 @@ function computeHRR(batter, oppPitcher, parkFactor, weatherAdj, teamImpliedRuns)
   // K suppression
   if ((oppPitcher.k9 || 0) > CONFIG.K9_HIGH) matchup += CONFIG.K9_HIGH_ADJ;
   else if ((oppPitcher.k9 || 0) > CONFIG.K9_MED) matchup += CONFIG.K9_MED_ADJ;
+  // Pitcher recent form (last 3 starts)
+  if (oppPitcher.last3ERA != null) {
+    if (oppPitcher.last3ERA < CONFIG.PITCHER_L3_GOOD)  matchup += CONFIG.PITCHER_L3_GOOD_ADJ;
+    else if (oppPitcher.last3ERA > CONFIG.PITCHER_L3_BAD) matchup += CONFIG.PITCHER_L3_BAD_ADJ;
+  }
   matchup = Math.max(0.5, Math.min(5, matchup));
 
   // ── Batting order / run environment ──
@@ -606,6 +636,9 @@ function computeHRR(batter, oppPitcher, parkFactor, weatherAdj, teamImpliedRuns)
             + matchup      * CONFIG.WEIGHT_MATCHUP
             + envScore     * CONFIG.WEIGHT_PARK
             + impliedAdj;
+
+  // ── Home field advantage ──
+  if (isHome) score += CONFIG.HOME_BONUS;
 
   // ── BvP career adjustment (cap scales with sample size) ──
   if (batter.bvp && batter.bvp.ab >= CONFIG.BVP_MIN_AB) {
@@ -755,6 +788,8 @@ async function buildGameData(mlbGames, oddsLines) {
         era:  awayPS?.era  || CONFIG.DEFAULT_ERA,
         k9:   awayPS?.k9   || CONFIG.DEFAULT_K9,
         xera: awayPS?.xera || CONFIG.DEFAULT_ERA,
+        last3: awayPS?.last3 || [],
+        last3ERA: awayPS?.last3ERA || null,
       };
       const homePitcher = {
         id: String(homePRaw?.id || ""),
@@ -763,6 +798,8 @@ async function buildGameData(mlbGames, oddsLines) {
         era:  homePS?.era  || CONFIG.DEFAULT_ERA,
         k9:   homePS?.k9   || CONFIG.DEFAULT_K9,
         xera: homePS?.xera || CONFIG.DEFAULT_ERA,
+        last3: homePS?.last3 || [],
+        last3ERA: homePS?.last3ERA || null,
       };
 
       // Lineups
@@ -853,6 +890,16 @@ function enrichWithProjections(data) {
     const awayImplied = game.oddsLine?.awayImplied || (game.oddsLine ? game.oddsLine.total / 2 : null);
     const homeImplied = game.oddsLine?.homeImplied || (game.oddsLine ? game.oddsLine.total / 2 : null);
 
+    // Environment score (1-10): summarizes park + weather + odds into one number
+    let envScore = 5; // neutral baseline
+    const pf = game.parkFactor || 1.0;
+    envScore += (pf - 1.0) * 15; // park factor: Coors +5.7, Petco -1.05
+    envScore += (game.weatherAdj || 0) * 3; // weather impact
+    if (game.oddsLine?.total) {
+      envScore += (game.oddsLine.total - 8.5) * 0.8; // O/U: 10.5 = +1.6, 7.0 = -1.2
+    }
+    game.envScore = Math.round(Math.max(1, Math.min(10, envScore)) * 10) / 10;
+
     // Track lineup availability per side
     game.awayLineupAvailable = game.away.lineup.length > 1 || (game.away.lineup[0]?.name !== "Lineup TBD");
     game.homeLineupAvailable = game.home.lineup.length > 1 || (game.home.lineup[0]?.name !== "Lineup TBD");
@@ -864,7 +911,8 @@ function enrichWithProjections(data) {
       const hasVegas  = game.oddsLine != null;
       team.lineup.forEach(batter => {
         const isTBD = !batter.id || batter.name === "Lineup TBD";
-        const hrr = computeHRR(batter, opp.pitcher, game.parkFactor, game.weatherAdj, implied);
+        const isHome = side === "home";
+        const hrr = computeHRR(batter, opp.pitcher, game.parkFactor, game.weatherAdj, implied, isHome);
         const bd  = breakdownHRR(hrr, batter.order);
         const confidence = isTBD ? 0 : computeConfidence(batter, opp.pitcher, hasVegas);
         const pickScore  = computePickScore(hrr, confidence);
@@ -880,6 +928,7 @@ function enrichWithProjections(data) {
         batter.gamePk     = game.gamePk;
         batter.gameTime   = game.time;
         batter.impliedRuns = implied;
+        batter.isHome     = side === "home";
         batter.isTBD      = isTBD;
         // Only include real players in rankings
         if (!isTBD) {
@@ -933,6 +982,34 @@ function enrichWithProjections(data) {
   });
   data.stacks2 = stacks2.sort((a, b) => b.total - a.total).slice(0, 10);
   data.stacks3 = stacks3.sort((a, b) => b.total - a.total).slice(0, 10);
+
+  // Game stacks: both teams in high-total games (O/U 9+)
+  const gameStacks = [];
+  data.games.forEach(game => {
+    if (!game.oddsLine || game.oddsLine.total < 9) return;
+    const awayPlayers = allPlayers.filter(p => p.team === game.away.abbr && p.gameId === game.id).slice(0, 3);
+    const homePlayers = allPlayers.filter(p => p.team === game.home.abbr && p.gameId === game.id).slice(0, 3);
+    if (awayPlayers.length < 2 || homePlayers.length < 2) return;
+    const all = [...awayPlayers, ...homePlayers];
+    gameStacks.push({
+      away: game.away.abbr, home: game.home.abbr,
+      total: game.oddsLine.total,
+      envScore: game.envScore,
+      time: game.time || "",
+      players: all.map(p => ({ name: p.name, team: p.team, hrr: p.hrr, order: p.order, confidence: p.confidence })),
+      stackTotal: Math.round(all.reduce((s, p) => s + p.hrr, 0) * 100) / 100,
+    });
+  });
+  data.gameStacks = gameStacks.sort((a, b) => b.stackTotal - a.stackTotal).slice(0, 5);
+
+  // Trim allPlayers for Gist size — remove fields only used in computation
+  data.allPlayers = allPlayers.map(p => {
+    const slim = { ...p };
+    delete slim.vsLeftOPS; delete slim.vsRightOPS;
+    delete slim.exitVelo; delete slim.obp; delete slim.slg;
+    return slim;
+  });
+
   return data;
 }
 
