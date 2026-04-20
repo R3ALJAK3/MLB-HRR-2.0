@@ -1130,13 +1130,28 @@ async function main() {
   const data     = { date: TODAY_ET, generatedAt: new Date().toISOString(), games };
   const enriched = enrichWithProjections(data);
 
+  // ── Cumulative allPlayers — merge with previous runs to preserve projections ──
+  // Players projected in earlier runs (when lineups were up) stay in allPlayers
+  // even if a later run doesn't include them (lineup changes, TBD reversion, etc.)
+  const existing   = await readExistingGist(octokit, process.env.GIST_ID);
+  if (existing?.allPlayers?.length) {
+    const freshKeys = new Set(enriched.allPlayers.map(p => p.name + "_" + p.team));
+    const preserved = existing.allPlayers.filter(ep => {
+      return ep.name && ep.name !== "Lineup TBD" && !ep.isTBD && !freshKeys.has(ep.name + "_" + ep.team);
+    });
+    if (preserved.length > 0) {
+      enriched.allPlayers = [...enriched.allPlayers, ...preserved];
+      enriched.allPlayers.sort((a, b) => (b.pickScore || b.hrr || 0) - (a.pickScore || a.hrr || 0));
+      console.log(`  Preserved ${preserved.length} projections from earlier runs`);
+    }
+  }
+
   // Top 10 locking with per-player game-start detection + confidence floor
   const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   // Only players meeting confidence floor, sorted by pickScore, max 10
   const confQualified = enriched.allPlayers.filter(p => (p.confidence || 0) >= CONFIG.CONF_TOP10_FLOOR);
   const freshTop10 = confQualified.slice(0, 10);
   const freshMap   = Object.fromEntries(freshTop10.map(p => [p.name+"_"+p.team, p]));
-  const existing   = await readExistingGist(octokit, process.env.GIST_ID);
 
   console.log(`  Confidence ≥ ${CONFIG.CONF_TOP10_FLOOR}: ${confQualified.length} players qualify for top plays`);
 
