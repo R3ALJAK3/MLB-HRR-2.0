@@ -4,1352 +4,151 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>MLB HRR Dashboard</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{colors:{bg0:'#08080a',bg1:'#0e0e11',bg2:'#141418'}}}}</script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#0a0a0c;--bg2:#13131a;--bg3:#1c1c26;--bg4:#242433;
-  --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.13);
-  --text:#f0f0f0;--muted:#888;--dim:#444;
-  --green:#22c55e;--gbg:rgba(34,197,94,.12);--gdim:rgba(34,197,94,.06);
-  --amber:#f59e0b;--abg:rgba(245,158,11,.12);
-  --blue:#60a5fa;--bbg:rgba(96,165,250,.1);
-  --red:#f87171;--rbg:rgba(248,113,113,.1);
-  --purple:#a78bfa;--pbg:rgba(167,139,250,.1);
-  --mono:'SF Mono','Fira Code',monospace;
-  --r:8px;--rl:10px;
-}
-html,body{height:100%;overflow-x:hidden}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}
-
-.header{background:var(--bg2);border-bottom:1px solid var(--border);padding:.7rem 1rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem;position:sticky;top:0;z-index:100}
-.logo{font-size:15px;font-weight:700;display:flex;align-items:center;gap:7px}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.hright{display:flex;align-items:center;gap:6px}
-.badge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;font-family:var(--mono)}
-.bl{background:var(--gbg);color:var(--green)}
-.bs{background:var(--abg);color:var(--amber)}
-.bload{background:var(--bbg);color:var(--blue)}
-.hsub{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
-.btn{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:5px 10px;font-size:12px;color:var(--muted);cursor:pointer}
-.btn:active{opacity:.7}
-.btn-sm{padding:4px 8px;font-size:11px}
-
-.tabs{background:var(--bg2);border-bottom:1px solid var(--border);display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:0 .75rem}
-.tabs::-webkit-scrollbar{display:none}
-.tab{background:none;border:none;border-bottom:2px solid transparent;padding:9px 12px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;white-space:nowrap;margin-bottom:-1px;flex-shrink:0}
-.tab.on{color:var(--text);border-bottom-color:var(--blue)}
-.tbadge{font-size:10px;background:var(--bg3);padding:1px 5px;border-radius:3px;margin-left:3px;font-family:var(--mono)}
-
-.main{padding:1rem;max-width:1200px;margin:0 auto}
-.panel{display:none}.panel.on{display:block}
-
-/* stat cards */
-.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-bottom:1rem}
-.sc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:.75rem}
-.sc .l{font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px}
-.sc .v{font-size:20px;font-weight:700;font-family:var(--mono)}
-
-/* tables */
-.tw{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);overflow-x:auto;-webkit-overflow-scrolling:touch}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:7px 8px;font-size:10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px}
-th:hover{color:var(--text)}
-th[data-tip]{cursor:help;border-bottom:1px dashed var(--dim)}
-
-/* global tooltip */
-#gtip{position:fixed;background:var(--bg4);color:var(--text);font-size:12px;font-weight:400;padding:7px 11px;border-radius:6px;border:1px solid var(--border2);white-space:normal;max-width:240px;z-index:9999;line-height:1.4;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.5);display:none;text-transform:none;letter-spacing:0}
-td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
-tr:last-child td{border-bottom:none}
-tr:hover td{background:rgba(255,255,255,.02)}
-.n{font-family:var(--mono)}
-.ta{background:var(--gbg);color:var(--green);font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;font-family:var(--mono)}
-.tb2{background:var(--abg);color:var(--amber);font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;font-family:var(--mono)}
-.tc{color:var(--dim);font-size:11px}
-.chip{font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;background:var(--bg3);color:var(--muted)}
-.htag{font-size:9px;background:var(--rbg);color:var(--red);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700}
-.k10{font-size:9px;background:var(--bbg);color:var(--blue);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700}
-.hand-r{font-size:9px;background:var(--pbg);color:var(--purple);padding:1px 4px;border-radius:3px;font-family:var(--mono);font-weight:700}
-.hand-l{font-size:9px;background:var(--bbg);color:var(--blue);padding:1px 4px;border-radius:3px;font-family:var(--mono);font-weight:700}
-
-/* top plays cards */
-.tp-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:.75rem;margin-bottom:6px;display:flex;align-items:center;gap:.75rem}
-.tp-rank{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:18px;text-align:center}
-.tp-info{flex:1;min-width:0}
-.tp-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tp-meta{font-size:11px;color:var(--muted);margin-top:2px}
-.tp-right{text-align:right;flex-shrink:0}
-.tp-hrr{font-size:18px;font-weight:700;font-family:var(--mono)}
-.tp-breakdown{font-size:10px;color:var(--muted);margin-top:1px;font-family:var(--mono)}
-
-/* game cards */
-.gc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:1rem;margin-bottom:.75rem}
-.gc.live{border-color:rgba(34,197,94,.3)}
-.ghdr{display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem;margin-bottom:.9rem;flex-wrap:wrap}
-.gtitle{font-size:15px;font-weight:700}
-.gmeta{font-size:11px;color:var(--muted);margin-top:2px}
-.gscore{font-size:20px;font-weight:700;font-family:var(--mono);color:var(--green)}
-.gstatus{font-size:11px;padding:2px 7px;border-radius:4px;font-weight:600;display:inline-block;margin-top:2px}
-.sl{background:var(--gbg);color:var(--green)}
-.sf{background:var(--bg3);color:var(--muted)}
-.sp2{background:var(--bbg);color:var(--blue)}
-.gg{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
-.tlbl{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding-bottom:4px;border-bottom:1px solid var(--border);margin-bottom:7px}
-.pi{font-size:11px;color:var(--muted);margin-bottom:7px;line-height:1.5}
-.pi strong{color:var(--text);font-weight:500}
-
-/* lineup rows in game slate */
-.lr{display:grid;grid-template-columns:14px 1fr 22px 38px 38px 38px 42px;gap:3px;align-items:center;padding:3px 4px;border-radius:4px;font-size:12px}
-.lr.a{background:var(--gdim)}
-.lr.b{background:rgba(245,158,11,.06)}
-.lnum{font-family:var(--mono);font-size:10px;color:var(--dim)}
-.lname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lname.a{color:var(--green);font-weight:600}
-.lname.b{color:var(--amber)}
-.lpos{font-size:10px;color:var(--dim);text-align:center}
-.lsub{font-family:var(--mono);font-size:11px;text-align:right}
-.lsub.a{color:var(--green);font-weight:600}
-.lsub.b{color:var(--amber)}
-.lhdr{display:grid;grid-template-columns:14px 1fr 22px 38px 38px 38px 42px;gap:3px;padding:2px 4px;font-size:9px;color:var(--dim);font-family:var(--mono);text-transform:uppercase;margin-bottom:2px}
-.wx{font-size:10px;background:var(--abg);color:var(--amber);padding:1px 5px;border-radius:3px;font-weight:600}
-
-/* filter bar */
-.fbar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:.75rem;align-items:center}
-.fbar select,.fbar input{background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:5px 8px;color:var(--text);font-size:12px;outline:none}
-.fbar select:focus,.fbar input:focus{border-color:var(--blue)}
-.fbar label{font-size:11px;color:var(--muted)}
-
-/* stack cards */
-.scard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:.75rem 1rem;margin-bottom:6px;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
-.srank{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:18px}
-.splayers{flex:1;display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:12px}
-.stot{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--green);margin-left:auto}
-
-/* live / results */
-.res-win td{background:rgba(34,197,94,.04)}
-.gg2{color:var(--green);font-weight:600}
-.gb2{color:var(--red)}
-.none-state{text-align:center;padding:2.5rem 1rem}
-.none-state .icon{font-size:32px;margin-bottom:.75rem;opacity:.4}
-.none-state .msg{font-size:14px;color:var(--muted)}
-
-/* live boxscore expand */
-.live-expand{cursor:pointer}
-.live-expand:hover{border-color:var(--border2)}
-.live-bs{margin-top:8px;border-top:1px solid var(--border);padding-top:8px}
-.live-bs table{font-size:12px}
-.live-bs th{font-size:9px;padding:4px 6px;text-transform:uppercase;cursor:default}
-.live-bs td{padding:3px 6px;font-size:12px;font-family:var(--mono)}
-.live-bs .pname{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-weight:500}
-.expand-hint{font-size:10px;color:var(--dim);margin-top:4px;transition:opacity .2s}
-.chevron{display:inline-block;transition:transform .2s;font-size:10px;color:var(--dim);margin-left:4px}
-
-/* player detail popup */
-#player-popup{position:fixed;top:0;left:0;width:100%;height:100%;z-index:500;display:none;align-items:flex-start;justify-content:center;padding-top:60px;background:rgba(0,0,0,.5)}
-#player-popup.show{display:flex}
-.pp-card{background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:1.25rem;max-width:480px;width:95%;max-height:80vh;overflow-y:auto;position:relative}
-.pp-close{position:absolute;top:10px;right:14px;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px}
-.pp-close:hover{color:var(--text)}
-.pp-name{font-size:18px;font-weight:700;margin-bottom:2px}
-.pp-meta{font-size:12px;color:var(--muted);margin-bottom:12px}
-.pp-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px}
-.pp-stat{background:var(--bg3);border-radius:6px;padding:6px 8px}
-.pp-stat .l{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.3px}
-.pp-stat .v{font-size:15px;font-weight:600;font-family:var(--mono)}
-.pp-section{font-size:10px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 4px;padding-top:6px;border-top:1px solid var(--border)}
-.plink{cursor:pointer;text-decoration:none}
-.plink:hover{text-decoration:underline;text-decoration-color:var(--dim)}
-
-.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4rem 1rem;gap:1rem}
-.spinner{width:26px;height:26px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes scaleIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
+@keyframes pulse2{0%,100%{opacity:1}50%{opacity:.3}}
 @keyframes spin{to{transform:rotate(360deg)}}
-.ltxt{font-size:13px;color:var(--muted)}
-.ebox{background:var(--rbg);border:1px solid rgba(248,113,113,.2);border-radius:var(--r);padding:1rem;color:var(--red);font-size:13px;line-height:1.6;white-space:pre-wrap}
-.note{font-size:11px;color:var(--dim);margin-top:7px}
-.section-title{font-size:14px;font-weight:600;margin-bottom:8px}
-
-@media(max-width:640px){
-  .hsub{display:none}
-  .main{padding:.75rem}
-  .sg{grid-template-columns:repeat(3,1fr)}
-  .gg{grid-template-columns:1fr}
-  .scard{flex-direction:column;align-items:flex-start}
-  .stot{margin-left:0}
-  .lr{grid-template-columns:14px 1fr 22px 38px 42px}
-  .lhdr{grid-template-columns:14px 1fr 22px 38px 42px}
-  .lr .lsub:nth-child(5),.lr .lsub:nth-child(6),.lhdr span:nth-child(5),.lhdr span:nth-child(6){display:none}
-  .fbar{gap:4px}
-}
-@media(max-width:380px){.sg{grid-template-columns:repeat(2,1fr)}}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body,#root{height:100%;overflow-x:hidden}
+body{background:#08080a;color:#e4e4e7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;font-size:14px}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:3px}
+.tabular-nums{font-variant-numeric:tabular-nums}.scrollbar-none::-webkit-scrollbar{display:none}
 </style>
 </head>
 <body>
-<div id="gtip"></div>
-<div id="player-popup" onclick="if(event.target===this)closePlayer()"><div class="pp-card" id="pp-content"></div></div>
-<div id="player-popup" onclick="if(event.target===this)closePlayer()"><div class="pp-card" id="pp-card"><button class="pp-close" onclick="closePlayer()">×</button><div id="pp-content"></div></div></div>
-<div class="header">
-  <div class="logo"><div class="dot"></div>MLB HRR</div>
-  <div class="hright">
-    <span id="hbadge" class="badge bload">LOADING</span>
-    <span id="hsub" class="hsub"></span>
-    <button class="btn" onclick="refreshAll()">↻</button>
-  </div>
-</div>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useMemo,useCallback}=React;
+const GIST="https://gist.githubusercontent.com/R3ALJAK3/2b4a2e18268a955fd76247ca91156f94/raw/hrr-data.json";
+const MLBAPI="https://statsapi.mlb.com/api/v1";
+const fmt=(n,d=2)=>((n)||0).toFixed(d);
+const TIPS={AVG:"Season batting average",OPS:"On-base + slugging (.720=avg)",wRC:"Weighted runs created+ (100=avg)","Brl%":"% ideal exit velo + angle","HH%":"% batted balls 95+ mph",BvP:"Career avg vs today's pitcher",Conf:"Data completeness 1-10",HRR:"Hits+Runs+RBI projection",Pick:"HRR × confidence blend",Tier:"A≥3.20 · B≥2.50 · C<2.50",Diff:"Actual minus projected"};
+const bd=(h,o,p)=>p?.hProj!=null?{h:p.hProj,r:p.rProj,rbi:p.rbiProj}:{h:0,r:0,rbi:0};
 
-<div class="tabs" id="tabs" style="display:none">
-  <button class="tab on" data-p="top">Top Plays</button>
-  <button class="tab" data-p="slate">Game Slate</button>
-  <button class="tab" data-p="all">All Players</button>
-  <button class="tab" data-p="stacks">Stacks</button>
-  <button class="tab" data-p="history">History</button>
-  <button class="tab" data-p="live">Live <span class="tbadge" id="lct">—</span></button>
-  <button class="tab" data-p="results">Results <span class="tbadge" id="rct">—</span></button>
-</div>
+const Tier=({t})=>{const c=t==="A"?"bg-emerald-500/15 text-emerald-400":t==="B"?"bg-amber-500/15 text-amber-400":"bg-zinc-700/30 text-zinc-500";return<span className={`inline-flex items-center justify-center w-6 h-5 rounded text-[10px] font-bold ${c}`}>{t}</span>};
+const ConfBar=({value:v=0})=>{const c=v>=9?"#10b981":v>=7?"#f59e0b":v>=5?"#f97316":"#ef4444";return<div className="flex items-center gap-1.5"><span style={{color:c}} className="text-xs font-semibold tabular-nums w-7 text-right">{v.toFixed(1)}</span><div className="relative h-[3px] w-10 bg-white/[.04] rounded-full overflow-hidden"><div style={{width:`${(v/10)*100}%`,background:c}} className="absolute inset-y-0 left-0 rounded-full transition-all duration-500"/></div></div>};
+const StreakTag=({type:t})=>{if(t==="hot")return<span className="inline-flex items-center gap-0.5 text-[9px] font-bold bg-red-500/15 text-red-400 px-1.5 py-0.5 rounded ml-1">🔥HOT</span>;if(t==="warm")return<span className="text-[9px] font-bold bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded ml-1">WARM</span>;if(t==="cold")return<span className="text-[9px] font-bold bg-blue-500/15 text-blue-400 px-1.5 py-0.5 rounded ml-1">❄COLD</span>;if(t==="cool")return<span className="text-[9px] font-bold bg-blue-500/15 text-blue-400 px-1.5 py-0.5 rounded ml-1">COOL</span>;return null};
+const HandBadge=({h})=><span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${h==="L"?"bg-blue-500/15 text-blue-400":"bg-purple-500/15 text-purple-400"}`}>{h}HP</span>;
+const InjBadge=()=><span className="text-[9px] font-bold bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded ml-1">DTD</span>;
+const Chip=({children})=><span className="text-[10px] font-semibold bg-white/[.06] text-zinc-400 px-1.5 py-0.5 rounded">{children}</span>;
+const EnvBadge=({score:s})=>{if(!s)return null;const c=s>=7?"text-emerald-400 bg-emerald-500/10":s>=4?"text-amber-400 bg-amber-500/10":"text-blue-400 bg-blue-500/10";return<span className={`text-[10px] font-bold px-1.5 py-0.5 rounded tabular-nums ${c}`}>ENV {s}</span>};
+const MetricCard=({label,value,sub,color,delay=0})=><div className="bg-zinc-900/60 border border-white/[.04] p-3.5 rounded-lg" style={{animation:`fadeUp 0.5s ease-out ${delay}s both`}}><div className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium mb-1">{label}</div><div className="text-2xl font-bold tabular-nums" style={{color:color||"#e4e4e7"}}>{value}</div>{sub&&<div className="text-[10px] text-zinc-600 mt-0.5">{sub}</div>}</div>;
+const Tooltip=({text,children})=>{const[s,setS]=useState(false);return<span className="relative inline-flex" onMouseEnter={()=>setS(true)} onMouseLeave={()=>setS(false)}>{children}{s&&text&&<span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2.5 py-1.5 bg-zinc-800 border border-white/10 text-[11px] text-zinc-200 rounded-md whitespace-normal max-w-[200px] z-50 pointer-events-none shadow-xl leading-relaxed">{text}</span>}</span>};
+const Th=({children,tip,onClick,sorted,dir,className=""})=><th onClick={onClick} className={`text-left px-2 py-2 text-[9px] font-semibold text-zinc-500 uppercase tracking-wider border-b border-white/[.04] cursor-pointer hover:text-zinc-300 select-none whitespace-nowrap transition-colors ${className}`}><Tooltip text={tip}><span className="flex items-center gap-1">{children}{sorted&&(dir===-1?"↓":"↑")}</span></Tooltip></th>;
+const PN=({p,onClick})=><span className="font-semibold text-zinc-100 hover:text-white cursor-pointer hover:underline decoration-zinc-600 underline-offset-2" onClick={e=>{e.stopPropagation();onClick(p)}}>{p.name}</span>;
 
-<div class="main">
-  <div id="p-top"     class="panel"></div>
-  <div id="p-slate"   class="panel"></div>
-  <div id="p-all"     class="panel"></div>
-  <div id="p-stacks"  class="panel"></div>
-  <div id="p-history" class="panel"></div>
-  <div id="p-live"    class="panel"></div>
-  <div id="p-results" class="panel"></div>
-  <div id="p-load" class="loading"><div class="spinner"></div><div class="ltxt">Loading...</div></div>
-  <div id="p-err" style="display:none"></div>
-</div>
+// Player Modal
+const Modal=({player:p,game:gm,onClose})=>{if(!p)return null;const sp=gm?(p.team===gm.home?.abbr?gm.away?.pitcher:gm.home?.pitcher):null;const b=bd(p.hrr,p.order,p);const cc=(p.confidence||0)>=9?"#10b981":(p.confidence||0)>=7?"#f59e0b":"#ef4444";const tc=p.tier==="A"?"#10b981":p.tier==="B"?"#f59e0b":"#52525b";
+const S=({l,v,c})=><div className="bg-white/[.03] rounded-md p-2.5"><div className="text-[9px] text-zinc-500 uppercase tracking-wider">{l}</div><div className="text-sm font-bold tabular-nums mt-0.5" style={{color:c||"#e4e4e7"}}>{v}</div></div>;
+const Sec=({t})=><div className="text-[10px] text-zinc-600 uppercase tracking-wider font-medium mt-4 mb-2 pt-3 border-t border-white/[.04]">{t}</div>;
+return<div className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/60 backdrop-blur-sm" onClick={onClose}><div className="bg-zinc-900 border border-white/[.06] rounded-xl w-full max-w-md mx-4 max-h-[80vh] overflow-y-auto shadow-2xl" onClick={e=>e.stopPropagation()} style={{animation:"scaleIn 0.2s ease-out"}}><div className="p-5">
+<div className="flex justify-between items-start mb-4"><div><div className="text-lg font-bold text-zinc-100 flex items-center gap-2 flex-wrap">{p.name}<StreakTag type={p.streakType}/>{p.injured&&<InjBadge/>}</div><div className="text-xs text-zinc-500 mt-1 flex items-center gap-2 flex-wrap"><Chip>{p.team}</Chip>{p.pos} · #{p.order} · {p.bats}H · {p.isHome?"Home":"Away"}{gm&&` · ${gm.time} ET`}</div></div><button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition text-lg px-1">✕</button></div>
+<div className="grid grid-cols-3 gap-2 mb-1"><S l="HRR" v={fmt(p.hrr)} c={tc}/><S l="Confidence" v={p.confidence?.toFixed(1)||"—"} c={cc}/><S l="Pick Score" v={p.pickScore?fmt(p.pickScore):"—"}/><S l="H Proj" v={fmt(b.h)} c="#10b981"/><S l="R Proj" v={fmt(b.r)} c="#3b82f6"/><S l="RBI Proj" v={fmt(b.rbi)} c="#f59e0b"/></div>
+<Sec t="Season"/><div className="grid grid-cols-3 gap-2"><S l="AVG" v={p.avg?(p.avg*1000|0)/1000:"—"}/><S l="OPS" v={(p.ops||0).toFixed(3)}/><S l="wRC+" v={p.wrcPlus||"—"}/><S l="xwOBA" v={p.xwoba?p.xwoba.toFixed(3):"—"}/><S l="Barrel%" v={p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}/><S l="HardHit%" v={p.hardHitPct!=null?p.hardHitPct.toFixed(1)+"%":"—"}/></div>
+<Sec t="Recent form"/><div className="grid grid-cols-3 gap-2"><S l="L10 AVG" v={p.last10Avg?(p.last10Avg*1000|0)/1000:"—"} c={p.streakType==="hot"?"#10b981":p.streakType==="cold"?"#3b82f6":undefined}/><S l="L10 AB" v={p.last10AB||"—"}/><S l="Hit Streak" v={`${p.hitStreak||0}G`}/></div>
+{sp&&<><Sec t="Matchup"/><div className="text-xs text-zinc-400 mb-2">vs <span className="text-zinc-200 font-semibold">{sp.name}</span> <HandBadge h={sp.hand}/> · {fmt(sp.era)} ERA{sp.last3ERA!=null&&<span style={{color:sp.last3ERA<3.5?"#10b981":sp.last3ERA>5?"#ef4444":"#a1a1aa"}}> · L3: {sp.last3ERA.toFixed(2)}</span>}</div>
+<div className="grid grid-cols-3 gap-2"><S l="BvP AVG" v={p.bvp?p.bvp.avg.toFixed(3):"—"} c={p.bvp?.avg>=.3?"#10b981":p.bvp?.avg<.2?"#ef4444":undefined}/><S l="BvP AB" v={p.bvp?p.bvp.ab:"—"}/><S l="Platoon" v={(p.bats==="L"&&sp.hand==="R"||p.bats==="R"&&sp.hand==="L")?"Fav":"Same"} c={(p.bats==="L"&&sp.hand==="R"||p.bats==="R"&&sp.hand==="L")?"#10b981":"#f59e0b"}/></div></>}
+{gm&&<><Sec t="Environment"/><div className="grid grid-cols-3 gap-2"><S l="Env Score" v={gm.envScore||"—"} c={(gm.envScore||5)>=7?"#10b981":(gm.envScore||5)>=4?"#f59e0b":"#3b82f6"}/><S l="Park Factor" v={`${(gm.parkFactor||1).toFixed(2)}×`}/><S l="Impl Runs" v={p.impliedRuns?p.impliedRuns.toFixed(1):"—"}/></div></>}
+</div></div></div>};
 
-<script>
-const MLBAPI = "https://statsapi.mlb.com/api/v1";
-const GIST = "https://gist.githubusercontent.com/R3ALJAK3/2b4a2e18268a955fd76247ca91156f94/raw/hrr-data.json";
-let DATA = null, LIVE = {}, SK = "pickScore", SD = -1, liveTimer = null, AP = "top";
+// Top Plays
+const TopPlays=({data:d,onSelect:sel})=>{const top=d.dailyTop10||[];const real=top.filter(p=>!p.isTBD&&p.name!=="Lineup TBD");const gWL=(d.games||[]).filter(g=>g.awayLineupAvailable||g.homeLineupAvailable).length;const tG=(d.games||[]).length;const ac=real.length?Math.round(real.reduce((s,p)=>s+(p.confidence||0),0)/real.length*10)/10:0;
+return<div><div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-4"><MetricCard label="Picks" value={real.length} delay={0}/><MetricCard label="Avg Confidence" value={ac} color={ac>=9?"#10b981":ac>=7?"#f59e0b":"#ef4444"} delay={.05}/><MetricCard label="Top HRR" value={real.length?fmt(real[0]?.hrr):"—"} delay={.1}/><MetricCard label="Lineups" value={`${gWL}/${tG}`} color={gWL===tG?"#10b981":"#f59e0b"} delay={.15}/><MetricCard label="Games" value={tG} delay={.2}/></div>
+{!real.length?<div className="text-center py-16 text-zinc-500"><div className="text-sm">No picks meet confidence ≥ 9.0 yet</div><div className="text-xs text-zinc-600 mt-1">{gWL}/{tG} lineups confirmed</div></div>
+:<div className="bg-zinc-900/40 border border-white/[.04] rounded-lg overflow-x-auto"><table className="w-full text-xs min-w-[900px]"><thead><tr className="border-b border-white/[.06]"><th className="px-2 py-2.5 text-[9px] text-zinc-600 font-medium uppercase tracking-wider text-left w-8">#</th><th className="px-2 py-2.5 text-[9px] text-zinc-600 font-medium uppercase tracking-wider text-left">Player</th><th className="px-2 py-2.5 text-[9px] text-zinc-600 font-medium uppercase tracking-wider text-left">Opp SP</th><Th tip={TIPS.AVG}>AVG</Th><Th tip={TIPS.OPS}>OPS</Th><Th tip={TIPS.wRC}>wRC+</Th><Th tip={TIPS["Brl%"]}>Brl%</Th><Th tip={TIPS.BvP}>BvP</Th><Th tip={TIPS.Conf}>Conf</Th><th className="px-2 py-2.5 text-[9px] text-zinc-600 text-center">H</th><th className="px-2 py-2.5 text-[9px] text-zinc-600 text-center">R</th><th className="px-2 py-2.5 text-[9px] text-zinc-600 text-center">RBI</th><Th tip={TIPS.HRR}>HRR</Th><Th tip={TIPS.Pick}>Pick</Th><Th tip={TIPS.Tier}>Tier</Th></tr></thead>
+<tbody>{real.map((p,i)=>{const gm=d.games?.find(g=>g.id===p.gameId);const sp=gm?(p.team===gm.home?.abbr?gm.away?.pitcher:gm.home?.pitcher):null;const b2=bd(p.hrr,p.order,p);
+return<tr key={p.name+p.team} className="border-b border-white/[.02] hover:bg-white/[.02] transition-colors" style={{animation:`fadeUp 0.4s ease-out ${i*.04}s both`}}>
+<td className="px-2 py-2 tabular-nums text-zinc-600">{i+1}</td>
+<td className="px-2 py-2"><div className="flex items-center gap-1.5"><PN p={p} onClick={sel}/><StreakTag type={p.streakType}/>{p.injured&&<InjBadge/>}</div><div className="text-[10px] text-zinc-600 mt-0.5"><Chip>{p.team}</Chip> {p.pos} #{p.order}{p.isHome?" · Home":""}</div></td>
+<td className="px-2 py-2 text-zinc-500">{sp?<><span className="text-zinc-300">{sp.name}</span> <HandBadge h={sp.hand}/>{sp.last3ERA!=null&&<span className="text-[10px] ml-1" style={{color:sp.last3ERA<3.5?"#10b981":sp.last3ERA>5?"#ef4444":"#71717a"}}>L3:{sp.last3ERA.toFixed(1)}</span>}</>:"—"}</td>
+<td className="px-2 py-2 tabular-nums text-zinc-400">{p.avg?(p.avg*1000|0)/1000:"—"}</td><td className="px-2 py-2 tabular-nums text-zinc-400">{(p.ops||0).toFixed(3)}</td><td className="px-2 py-2 tabular-nums text-zinc-400">{p.wrcPlus||"—"}</td><td className="px-2 py-2 tabular-nums text-zinc-400">{p.barrelPct!=null?p.barrelPct.toFixed(1):"—"}</td>
+<td className="px-2 py-2 tabular-nums" style={{color:p.bvp?.avg>=.3?"#10b981":p.bvp?.avg<.2?"#ef4444":"#71717a"}}>{p.bvp?p.bvp.avg.toFixed(3):"—"}<span className="text-zinc-600 text-[9px] ml-0.5">{p.bvp?`(${p.bvp.ab})`:""}</span></td>
+<td className="px-2 py-2"><ConfBar value={p.confidence}/></td>
+<td className="px-2 py-2 tabular-nums text-emerald-400/80 text-center">{fmt(b2.h)}</td><td className="px-2 py-2 tabular-nums text-blue-400/80 text-center">{fmt(b2.r)}</td><td className="px-2 py-2 tabular-nums text-amber-400/80 text-center">{fmt(b2.rbi)}</td>
+<td className="px-2 py-2 tabular-nums font-bold text-zinc-100 text-sm">{fmt(p.hrr)}</td><td className="px-2 py-2 tabular-nums text-zinc-500">{p.pickScore?fmt(p.pickScore):"—"}</td><td className="px-2 py-2"><Tier t={p.tier}/></td>
+</tr>})}</tbody></table></div>}
+<div className="text-[10px] text-zinc-600 mt-2">Filtered by confidence ≥ 9.0 · Ranked by pick score</div></div>};
 
-const $ = id => document.getElementById(id);
-const fmt = (n,d=2) => ((n)||0).toFixed(d);
-const chip = t => `<span class="chip">${t||"?"}</span>`;
-const hot = h => h ? '<span class="htag">HOT</span>' : "";
-const streakTag = t => t==="hot"?'<span class="htag">🔥HOT</span>':t==="warm"?'<span style="font-size:9px;background:rgba(245,158,11,.15);color:var(--amber);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700">WARM</span>':t==="cold"?'<span style="font-size:9px;background:var(--bbg);color:var(--blue);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700">❄COLD</span>':t==="cool"?'<span style="font-size:9px;background:var(--bbg);color:var(--blue);padding:1px 4px;border-radius:3px;margin-left:3px;font-weight:700;font-family:var(--mono)">COOL</span>':"";
-const injTag = i => i ? '<span style="font-size:9px;background:var(--abg);color:var(--amber);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700">⚠DTD</span>' : "";
-const k10tag = k => k > 10 ? '<span class="k10">K10+</span>' : "";
-const handTag = h => h==="L" ? '<span class="hand-l">LHP</span>' : '<span class="hand-r">RHP</span>';
+// All Players
+const AllPlayers=({data:d,onSelect:sel})=>{const[search,setSearch]=useState("");const[sk,setSk]=useState("pickScore");const[sd,setSd]=useState(-1);const[tf,setTf]=useState("");const[tierF,setTierF]=useState("");
+const teams=useMemo(()=>[...new Set((d.allPlayers||[]).map(p=>p.team))].sort(),[d]);
+const players=useMemo(()=>{let a=[...(d.allPlayers||[])];if(search)a=a.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||p.team?.toLowerCase().includes(search.toLowerCase()));if(tf)a=a.filter(p=>p.team===tf);if(tierF)a=a.filter(p=>p.tier===tierF);a.sort((x,y)=>{const av=x[sk],bv=y[sk];return typeof av==="string"?av.localeCompare(bv)*sd:((bv||0)-(av||0))*-sd});return a},[d,search,sk,sd,tf,tierF]);
+const toggle=k=>{sk===k?setSd(x=>x*-1):(setSk(k),setSd(-1))};
+const cols=[{k:"name",l:"Player"},{k:"team",l:"Team"},{k:"order",l:"#"},{k:"avg",l:"AVG",tip:TIPS.AVG},{k:"ops",l:"OPS",tip:TIPS.OPS},{k:"wrcPlus",l:"wRC+",tip:TIPS.wRC},{k:"barrelPct",l:"Brl%",tip:TIPS["Brl%"]},{k:"confidence",l:"Conf",tip:TIPS.Conf},{k:"hrr",l:"HRR",tip:TIPS.HRR},{k:"pickScore",l:"Pick",tip:TIPS.Pick},{k:"tier",l:"Tier",tip:TIPS.Tier}];
+const csv=()=>{const rows=players.map(p=>{const b2=bd(p.hrr,p.order,p);return`"${p.name}",${p.team},${p.pos},${p.order},${(p.ops||0).toFixed(3)},${p.wrcPlus||0},${p.confidence||""},${fmt(b2.h)},${fmt(b2.r)},${fmt(b2.rbi)},${fmt(p.hrr)},${p.pickScore?fmt(p.pickScore):""},${p.tier}`});const c=["Player,Team,Pos,Ord,OPS,wRC+,Conf,H,R,RBI,HRR,Pick,Tier",...rows].join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(c);a.download="hrr-"+(d.date||"today")+".csv";a.click()};
+return<div><div className="flex flex-wrap items-center gap-2 mb-3"><div className="relative"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search..." className="bg-zinc-900 border border-white/[.06] rounded-md pl-3 pr-3 py-1.5 text-xs text-zinc-200 outline-none focus:border-zinc-600 w-40 placeholder:text-zinc-600"/></div>
+<select value={tf} onChange={e=>setTf(e.target.value)} className="bg-zinc-900 border border-white/[.06] rounded-md px-2 py-1.5 text-xs text-zinc-400 outline-none"><option value="">All Teams</option>{teams.map(t=><option key={t}>{t}</option>)}</select>
+<select value={tierF} onChange={e=>setTierF(e.target.value)} className="bg-zinc-900 border border-white/[.06] rounded-md px-2 py-1.5 text-xs text-zinc-400 outline-none"><option value="">All Tiers</option><option>A</option><option>B</option><option>C</option></select>
+<button onClick={csv} className="bg-zinc-900 border border-white/[.06] rounded-md px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition">Export CSV</button>
+<span className="text-[10px] text-zinc-600 ml-auto">{players.length} players</span></div>
+<div className="bg-zinc-900/40 border border-white/[.04] rounded-lg overflow-x-auto"><table className="w-full text-xs min-w-[700px]"><thead><tr className="border-b border-white/[.06]">{cols.map(c=><Th key={c.k} tip={c.tip} onClick={()=>toggle(c.k)} sorted={sk===c.k} dir={sd}>{c.l}</Th>)}</tr></thead>
+<tbody>{players.slice(0,100).map((p,i)=><tr key={p.name+p.team+i} className="border-b border-white/[.02] hover:bg-white/[.02] transition-colors cursor-pointer" onClick={()=>sel(p)}>
+<td className="px-2 py-1.5"><PN p={p} onClick={sel}/><StreakTag type={p.streakType}/></td><td className="px-2 py-1.5"><Chip>{p.team}</Chip></td><td className="px-2 py-1.5 tabular-nums text-zinc-500">{p.order}</td>
+<td className="px-2 py-1.5 tabular-nums text-zinc-400">{p.avg?(p.avg*1000|0)/1000:"—"}</td><td className="px-2 py-1.5 tabular-nums text-zinc-400">{(p.ops||0).toFixed(3)}</td><td className="px-2 py-1.5 tabular-nums text-zinc-400">{p.wrcPlus||"—"}</td><td className="px-2 py-1.5 tabular-nums text-zinc-400">{p.barrelPct!=null?p.barrelPct.toFixed(1):"—"}</td>
+<td className="px-2 py-1.5"><ConfBar value={p.confidence}/></td><td className="px-2 py-1.5 tabular-nums font-bold text-zinc-100">{fmt(p.hrr)}</td><td className="px-2 py-1.5 tabular-nums text-zinc-500">{p.pickScore?fmt(p.pickScore):"—"}</td><td className="px-2 py-1.5"><Tier t={p.tier}/></td>
+</tr>)}</tbody></table></div></div>};
 
-// ── Column tooltip definitions ───────────────────────
-const TIPS = {
-  "#":"Rank by projected HRR",
-  "Player":"Player name with streak/injury tags",
-  "Team":"MLB team abbreviation",
-  "Pos":"Fielding position",
-  "Ord":"Batting order position (1=leadoff, 4=cleanup)",
-  "B":"Bats — L (left), R (right), S (switch)",
-  "Opp SP":"Opposing starting pitcher",
-  "Hand":"Pitcher throwing hand — LHP or RHP",
-  "AVG":"Season batting average (hits ÷ at-bats)",
-  "L10":"Batting average over last 10 games",
-  "L10 AVG":"Batting average over last 10 games",
-  "OPS":"On-base + slugging — measures overall offensive value. League avg ~.720",
-  "wRC+":"Weighted runs created plus — 100 = league avg, 130+ = elite. Derived from xwOBA",
-  "Barrel%":"% of batted balls with ideal exit velo + launch angle. 10%+ is elite",
-  "HardHit%":"% of batted balls hit 95+ mph. 45%+ is elite",
-  "BvP":"Batter vs Pitcher — career batting avg against today's opposing SP (AB count)",
-  "H":"Projected hits component of HRR",
-  "H Proj":"Projected hits component of HRR",
-  "R":"Projected runs component of HRR",
-  "R Proj":"Projected runs component of HRR",
-  "RBI":"Projected RBI component of HRR",
-  "RBI Proj":"Projected RBI component of HRR",
-  "HRR":"Hits + Runs + RBI projection. Core model score",
-  "Proj HRR":"Hits + Runs + RBI projection. Core model score",
-  "Tier":"A (≥3.20) = top play, B (2.50-3.19) = solid, C (<2.50) = below avg",
-  "Actual":"Actual H+R+RBI from completed game",
-  "Result":"Whether actual HRR met or exceeded the rounded projection",
-  "Diff":"Actual HRR minus projected HRR",
-  "Top 10 Hit%":"% of top 10 picks that met/exceeded projection",
-  "Avg Diff":"Average (actual - projected) across all projected players",
-  "Tier A":"Hit rate for Tier A players only",
-  "Tier B":"Hit rate for Tier B players only",
-  "Games":"Number of completed games that day",
-  "Date":"Date of projections",
-  "Conf":"Confidence score (1.0-10.0). Measures data completeness: season PA, Savant stats, BvP history, streak, pitcher intel, lineup position, Vegas lines",
-  "Pick":"Pick score — blended HRR × confidence. Ranks plays by projected value weighted by data reliability",
-};
-function tip(label) {
-  const t = TIPS[label];
-  return t ? ` data-tip="${t}"` : "";
+// Game Slate
+const GameSlate=({data:d,onSelect:sel})=>{const games=d.games||[];
+return<div className="grid grid-cols-1 gap-3">{games.map((g,gi)=>{const ap=(d.allPlayers||[]).filter(p=>p.team===g.away?.abbr&&p.gameId===g.id).sort((a,b)=>a.order-b.order);const hp=(d.allPlayers||[]).filter(p=>p.team===g.home?.abbr&&p.gameId===g.id).sort((a,b)=>a.order-b.order);
+const LR=({p})=>{if(!p||p.name==="Lineup TBD")return null;const tc=p.tier==="A"?"text-emerald-400":p.tier==="B"?"text-amber-400":"text-zinc-500";return<div className={`grid grid-cols-[16px_1fr_28px_36px_36px_36px_40px] gap-1 items-center py-0.5 px-1 rounded text-[11px] hover:bg-white/[.02] cursor-pointer ${p.tier==="A"?"bg-emerald-500/[.03]":""}`} onClick={()=>sel(p)}><span className="tabular-nums text-zinc-600 text-[10px]">{p.order}</span><span className={`truncate ${tc} font-medium`}>{p.name}</span><span className="text-zinc-600 text-center text-[10px]">{p.pos}</span><span className={`tabular-nums text-right ${tc}`}>{p.hProj?fmt(p.hProj):"—"}</span><span className={`tabular-nums text-right ${tc}`}>{p.rProj?fmt(p.rProj):"—"}</span><span className={`tabular-nums text-right ${tc}`}>{p.rbiProj?fmt(p.rbiProj):"—"}</span><span className={`tabular-nums text-right font-semibold ${tc}`}>{fmt(p.hrr)}</span></div>};
+const Side=({side,lineup})=>{const pitcher=g[side]?.pitcher;const tbd=lineup.length===0;return<div><div className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider pb-1.5 mb-1.5 border-b border-white/[.04]">{g[side]?.name}</div>
+{pitcher&&<div className="text-[11px] text-zinc-500 mb-2"><span className="text-zinc-300 font-medium">{pitcher.name}</span> <HandBadge h={pitcher.hand}/><span className="ml-1">{fmt(pitcher.era)} ERA · {pitcher.k9} K/9</span>{pitcher.last3ERA!=null&&<span style={{color:pitcher.last3ERA<3.5?"#10b981":pitcher.last3ERA>5?"#ef4444":"#71717a"}}> · L3: {pitcher.last3ERA.toFixed(2)}</span>}</div>}
+{tbd?<div className="text-center py-4 text-zinc-600 text-[11px] border border-dashed border-white/[.06] rounded-md">Awaiting lineup</div>:<><div className="grid grid-cols-[16px_1fr_28px_36px_36px_36px_40px] gap-1 px-1 text-[9px] text-zinc-600 uppercase mb-0.5"><span></span><span>Player</span><span className="text-center">Pos</span><span className="text-right">H</span><span className="text-right">R</span><span className="text-right">RBI</span><span className="text-right">HRR</span></div>{lineup.map(p=><LR key={p.name} p={p}/>)}</>}</div>};
+return<div key={g.id} className="bg-zinc-900/40 border border-white/[.04] rounded-lg p-4" style={{animation:`fadeUp 0.4s ease-out ${gi*.05}s both`}}><div className="flex justify-between items-start gap-2 mb-3 flex-wrap"><div><div className="text-base font-bold text-zinc-100">{g.away?.abbr} <span className="text-zinc-600 font-normal">@</span> {g.home?.abbr}</div><div className="text-[10px] text-zinc-600 mt-0.5">{g.time} ET · {g.stadium}</div></div><div className="text-right text-[10px] tabular-nums text-zinc-500 flex flex-wrap gap-1.5 items-center"><EnvBadge score={g.envScore}/><span>PF {(g.parkFactor||1).toFixed(2)}×</span>{g.weatherNote&&<span>{g.weatherNote}</span>}{g.oddsLine&&<span className="text-amber-400">O/U {g.oddsLine.total}</span>}</div></div>
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4"><Side side="away" lineup={ap}/><Side side="home" lineup={hp}/></div></div>})}</div>};
+
+// Live, Results, Stacks, History
+const LiveScores=({live})=>{const[exp,setExp]=useState({});const[bs,setBs]=useState({});const games=Object.values(live);if(!games.length)return<div className="text-center py-16 text-zinc-500 text-sm">Checking scores...</div>;
+const gr={live:[],final:[],upcoming:[]};games.forEach(g=>{const st=g.status?.abstractGameState;if(st==="Live")gr.live.push(g);else if(st==="Final")gr.final.push(g);else gr.upcoming.push(g)});
+const toggle=async pk=>{if(exp[pk]){setExp(e=>({...e,[pk]:false}));return}setExp(e=>({...e,[pk]:true}));if(!bs[pk]){try{const r=await fetch(`${MLBAPI}/game/${pk}/boxscore`);setBs(c=>({...c,[pk]:await r.json()}))}catch{}}};
+const BS=({pk})=>{const d=bs[pk];if(!d)return<div className="text-xs text-zinc-600 py-2">Loading...</div>;return["away","home"].map(side=>{const td=d.teams?.[side];if(!td)return null;const batters=td.battingOrder||[];const players=td.players||{};
+return<div key={side} className="mt-2"><div className="text-[10px] font-semibold text-zinc-400 mb-1">{td.team?.abbreviation}</div><table className="w-full text-[11px]"><thead><tr className="text-[9px] text-zinc-600"><th className="text-left px-1 py-1">Player</th><th className="text-center px-1 py-1">AB</th><th className="text-center px-1 py-1">R</th><th className="text-center px-1 py-1">H</th><th className="text-center px-1 py-1">RBI</th><th className="text-center px-1 py-1">HR</th><th className="text-center px-1 py-1">BB</th><th className="text-center px-1 py-1">K</th><th className="text-center px-1 py-1 text-emerald-400">HRR</th></tr></thead>
+<tbody>{batters.map(id=>{const p=players["ID"+id];if(!p)return null;const s=p.stats?.batting;if(!s)return null;const hrr=(parseInt(s.hits||0))+(parseInt(s.runs||0))+(parseInt(s.rbi||0));
+return<tr key={id} className="border-t border-white/[.02]"><td className="px-1 py-0.5 font-medium text-zinc-300">{p.person?.fullName}<span className="text-zinc-600 text-[9px] ml-1">{p.position?.abbreviation}</span></td><td className="text-center tabular-nums px-1">{s.atBats||0}</td><td className="text-center tabular-nums px-1">{s.runs||0}</td><td className="text-center tabular-nums px-1">{s.hits||0}</td><td className="text-center tabular-nums px-1">{s.rbi||0}</td><td className="text-center tabular-nums px-1">{s.homeRuns||0}</td><td className="text-center tabular-nums px-1">{s.baseOnBalls||0}</td><td className="text-center tabular-nums px-1">{s.strikeOuts||0}</td><td className="text-center tabular-nums px-1 font-bold" style={{color:hrr>=3?"#10b981":hrr>=2?"#f59e0b":"#71717a"}}>{hrr}</td></tr>})}</tbody></table></div>})};
+const Sec=({label,color,list})=>!list.length?null:<div className="mb-4"><div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{color}}>{label}</div>{list.map(g=>{const aa=g.teams?.away?.team?.abbreviation||"?",ha=g.teams?.home?.team?.abbreviation||"?";const ar=g.teams?.away?.score??"—",hr=g.teams?.home?.score??"—";const ls=g.linescore;const st=g.status?.abstractGameState;const ce=st==="Live"||st==="Final";
+return<div key={g.gamePk} className={`bg-zinc-900/40 border rounded-lg p-3 mb-2 ${ce?"cursor-pointer":""} ${st==="Live"?"border-emerald-500/20":"border-white/[.04]"} hover:border-white/[.08] transition`} onClick={()=>ce&&toggle(g.gamePk)}>
+<div className="flex justify-between items-center"><div><span className="font-bold text-zinc-100 text-sm">{aa} @ {ha}</span>{ce&&<span className="text-[9px] text-zinc-600 ml-1.5">{exp[g.gamePk]?"▲":"▼"}</span>}<div className="text-[10px] text-zinc-600">{g.venue?.name}</div></div>
+<div className="text-right"><span className="text-xl font-bold tabular-nums text-zinc-100">{ar} – {hr}</span><div className="text-[10px] mt-0.5">{st==="Live"?<span className="text-emerald-400 font-semibold">{ls?.currentInningOrdinal} {ls?.inningHalf==="Top"?"▲":"▼"}</span>:st==="Final"?<span className="text-zinc-500">Final</span>:<span className="text-zinc-500">{new Date(g.gameDate).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZone:"America/New_York"})}</span>}</div></div></div>
+{exp[g.gamePk]&&<div className="mt-2 pt-2 border-t border-white/[.04]"><BS pk={g.gamePk}/></div>}</div>})}</div>;
+return<div><Sec label="In Progress" color="#10b981" list={gr.live}/><Sec label="Final" color="#71717a" list={gr.final}/><Sec label="Upcoming" color="#71717a" list={gr.upcoming}/></div>};
+
+const Results=({data:d,live})=>{const[rows,setRows]=useState(null);useEffect(()=>{const fin=Object.values(live).filter(g=>g.status?.abstractGameState==="Final");if(!fin.length){setRows([]);return}(async()=>{const r=[];for(const g of fin){try{const res=await fetch(`${MLBAPI}/game/${g.gamePk}/boxscore`);const bs=await res.json();for(const side of["away","home"]){const td=bs.teams?.[side];if(!td)continue;const abbr=td.team?.abbreviation;for(const p of Object.values(td.players||{})){const s=p.stats?.batting;if(!s||(s.atBats||0)===0)continue;const actual=parseInt(s.hits||0)+parseInt(s.runs||0)+parseInt(s.rbi||0);const fn=p.person?.fullName||"?";const norm=n=>n.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();let proj=d?.allPlayers?.find(pl=>pl.name===fn&&pl.team===abbr);if(!proj)proj=d?.allPlayers?.find(pl=>norm(pl.name)===norm(fn)&&pl.team===abbr);r.push({name:fn,abbr,hits:parseInt(s.hits||0),runs:parseInt(s.runs||0),rbi:parseInt(s.rbi||0),actual,proj:proj?.hrr??null,tier:proj?.tier||null})}}}catch{}}r.sort((a,b)=>b.actual-a.actual);setRows(r)})()},[live,d]);
+if(rows===null)return<div className="text-center py-16 text-zinc-500 text-sm">Loading...</div>;if(!rows.length)return<div className="text-center py-16 text-zinc-500 text-sm">Results appear once games finish</div>;
+const proj=rows.filter(r=>r.proj!==null);const hitRate=proj.length?Math.round(proj.filter(r=>r.actual>=Math.round(r.proj)).length/proj.length*1000)/10:0;const avgDiff=proj.length?Math.round(proj.reduce((s,r)=>s+(r.actual-r.proj),0)/proj.length*100)/100:0;
+return<div><div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4"><MetricCard label="Hit Rate" value={`${hitRate}%`} color={hitRate>=50?"#10b981":"#f59e0b"}/><MetricCard label="Avg Diff" value={`${avgDiff>=0?"+":""}${avgDiff}`} color={avgDiff>=0?"#10b981":"#ef4444"} delay={.05}/><MetricCard label="Top 3 Actual" value={rows.slice(0,3).reduce((s,r)=>s+r.actual,0)} delay={.1}/><MetricCard label="Projected" value={`${proj.length}/${rows.length}`} delay={.15}/></div>
+<div className="bg-zinc-900/40 border border-white/[.04] rounded-lg overflow-x-auto"><table className="w-full text-xs"><thead><tr className="border-b border-white/[.06]"><Th>Player</Th><Th>Team</Th><Th>Tier</Th><th className="px-2 py-2 text-[9px] text-zinc-600 text-center">H</th><th className="px-2 py-2 text-[9px] text-zinc-600 text-center">R</th><th className="px-2 py-2 text-[9px] text-zinc-600 text-center">RBI</th><Th>Actual</Th><Th>Projected</Th><Th tip={TIPS.Diff}>Diff</Th></tr></thead>
+<tbody>{rows.map((r,i)=>{const diff=r.proj!==null?Math.round((r.actual-r.proj)*100)/100:null;return<tr key={r.name+i} className={`border-b border-white/[.02] ${r.actual>=3?"bg-emerald-500/[.03]":""}`}><td className="px-2 py-1.5 font-medium text-zinc-200">{r.name}</td><td className="px-2 py-1.5"><Chip>{r.abbr}</Chip></td><td className="px-2 py-1.5">{r.tier?<Tier t={r.tier}/>:<span className="text-zinc-600">—</span>}</td><td className="px-2 py-1.5 tabular-nums text-center">{r.hits}</td><td className="px-2 py-1.5 tabular-nums text-center">{r.runs}</td><td className="px-2 py-1.5 tabular-nums text-center">{r.rbi}</td><td className="px-2 py-1.5 tabular-nums font-bold" style={{color:r.actual>=3?"#10b981":r.actual>=2?"#f59e0b":"#71717a"}}>{r.actual}</td><td className="px-2 py-1.5 tabular-nums text-zinc-500">{r.proj!==null?fmt(r.proj):"—"}</td><td className="px-2 py-1.5 tabular-nums font-semibold" style={{color:diff!=null?(diff>=0?"#10b981":"#ef4444"):"#3f3f46"}}>{diff!=null?`${diff>=0?"+":""}${diff}`:"—"}</td></tr>})}</tbody></table></div></div>};
+
+const Stacks=({data:d})=>{const SS=({title,stacks,sub})=>{if(!stacks?.length)return null;return<div className="mb-6"><div className="text-xs font-semibold text-zinc-400 mb-2">{title}{sub&&<span className="text-zinc-600 font-normal ml-2">{sub}</span>}</div>{stacks.map((s,i)=><div key={i} className="bg-zinc-900/40 border border-white/[.04] rounded-lg p-3 mb-2 flex items-center gap-3 flex-wrap" style={{animation:`fadeUp 0.3s ease-out ${i*.04}s both`}}><span className="text-zinc-600 tabular-nums text-xs w-5">{i+1}</span><div className="min-w-[60px]"><Chip>{s.team||`${s.away}@${s.home}`}</Chip><div className="text-[10px] text-zinc-600 mt-0.5">{s.opp?`vs ${s.opp} · `:""}{s.time}{s.impliedRuns?` · ${s.impliedRuns.toFixed(1)} impl`:""}</div></div><div className="flex-1 flex items-center gap-1 flex-wrap text-xs">{(s.players||[]).map((p,j)=><span key={j}><span style={{color:p.tier==="A"?"#10b981":p.tier==="B"?"#f59e0b":"#e4e4e7"}}>{p.name}</span><span className="tabular-nums text-zinc-600 ml-0.5">{fmt(p.hrr)}</span>{j<s.players.length-1&&<span className="text-zinc-700 mx-1">+</span>}</span>)}</div><span className="tabular-nums text-base font-bold text-emerald-400">{(s.total||s.stackTotal||0).toFixed(2)}</span></div>)}</div>};
+return<div><SS title="2-Player Stacks" stacks={d.stacks2}/><SS title="3-Player Stacks" stacks={d.stacks3}/><SS title="Game Stacks" stacks={d.gameStacks} sub="Both teams in O/U 9+ games"/></div>};
+
+const History=({data:d})=>{const[open,setOpen]=useState({});const h=d?.accuracyHistory||[];if(!h.length)return<div className="text-center py-16 text-zinc-500"><div className="text-sm">No historical data yet</div><div className="text-xs text-zinc-600 mt-1">History builds as each day completes</div></div>;
+return<div>{[...h].reverse().map((day,i)=>{const isO=open[day.date];return<div key={day.date} className="bg-zinc-900/40 border border-white/[.04] rounded-lg p-3 mb-2 cursor-pointer hover:border-white/[.08] transition" onClick={()=>setOpen(o=>({...o,[day.date]:!o[day.date]}))}>
+<div className="flex justify-between items-center"><div><span className="font-bold text-zinc-100 text-sm">{day.date}</span><span className="text-[9px] text-zinc-600 ml-1.5">{isO?"▲":"▼"}</span><div className="text-[10px] text-zinc-600">{day.gamesCompleted} games</div></div>
+<div className="flex items-center gap-4"><div className="text-center"><div className="text-[9px] text-zinc-600">Hit%</div><div className="text-sm font-bold tabular-nums" style={{color:day.top10HitRate>=50?"#10b981":day.top10HitRate>=30?"#f59e0b":"#ef4444"}}>{day.top10HitRate!=null?day.top10HitRate+"%":"—"}</div></div><div className="text-center"><div className="text-[9px] text-zinc-600">Diff</div><div className="text-sm font-bold tabular-nums" style={{color:(day.top10AvgDiff||0)>=0?"#10b981":"#ef4444"}}>{day.top10AvgDiff!=null?`${day.top10AvgDiff>=0?"+":""}${day.top10AvgDiff}`:"—"}</div></div></div></div>
+{isO&&day.top10?.length>0&&<div className="mt-2 pt-2 border-t border-white/[.04]"><table className="w-full text-[11px]"><thead><tr className="text-[9px] text-zinc-600"><th className="text-left px-1 py-1">#</th><th className="text-left px-1 py-1">Player</th><th className="text-left px-1 py-1">Team</th><th className="text-right px-1 py-1">HRR</th><th className="text-center px-1 py-1">Tier</th><th className="text-center px-1 py-1">Actual</th><th className="text-center px-1 py-1">Result</th></tr></thead><tbody>{day.top10.map((p,j)=>{const hit=p.actual!=null?p.actual>=Math.round(p.hrr):null;return<tr key={j} className="border-t border-white/[.02]" style={{background:hit===true?"rgba(16,185,129,.05)":hit===false?"rgba(239,68,68,.05)":"transparent"}}><td className="px-1 py-0.5 tabular-nums text-zinc-600">{j+1}</td><td className="px-1 py-0.5 text-zinc-300">{p.name}</td><td className="px-1 py-0.5"><Chip>{p.team}</Chip></td><td className="px-1 py-0.5 tabular-nums text-right font-semibold">{fmt(p.hrr)}</td><td className="px-1 py-0.5 text-center"><Tier t={p.tier}/></td><td className="px-1 py-0.5 tabular-nums text-center font-bold" style={{color:p.actual>=3?"#10b981":p.actual>=2?"#f59e0b":"#71717a"}}>{p.actual!=null?p.actual:"—"}</td><td className="px-1 py-0.5 text-center">{hit===true?<span className="text-emerald-400 font-bold">✓</span>:hit===false?<span className="text-red-400 font-bold">✗</span>:"—"}</td></tr>})}</tbody></table></div>}
+</div>})}</div>};
+
+// App Shell
+const TABS=[{id:"top",l:"Top Plays"},{id:"slate",l:"Game Slate"},{id:"all",l:"All Players"},{id:"stacks",l:"Stacks"},{id:"history",l:"History"},{id:"live",l:"Live"},{id:"results",l:"Results"}];
+function App(){const[data,setData]=useState(null);const[live,setLive]=useState({});const[tab,setTab]=useState("top");const[sel,setSel]=useState(null);const[loading,setLoading]=useState(true);const[err,setErr]=useState(null);
+const fetchD=useCallback(async()=>{try{const r=await fetch(GIST+"?t="+Date.now());if(!r.ok)throw new Error("HTTP "+r.status);setData(await r.json());setErr(null)}catch(e){setErr(e.message)}setLoading(false)},[]);
+const fetchL=useCallback(async()=>{try{const today=new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});const r=await fetch(`${MLBAPI}/schedule?sportId=1&date=${today}&hydrate=team,linescore`);const d=await r.json();const m={};(d.dates?.[0]?.games||[]).forEach(g=>m[g.gamePk]=g);setLive(m)}catch{}},[]);
+useEffect(()=>{fetchD();fetchL();const t=setInterval(fetchL,60000);return()=>clearInterval(t)},[]);
+useEffect(()=>{const h=e=>{if(e.key==="Escape")setSel(null)};document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h)},[]);
+const gm=sel?data?.games?.find(g=>g.id===sel.gameId):null;const lc=Object.values(live).filter(g=>g.status?.abstractGameState==="Live").length;const fc=Object.values(live).filter(g=>g.status?.abstractGameState==="Final").length;const gen=data?.generatedAt?new Date(data.generatedAt):null;const age=gen?Math.round((Date.now()-gen.getTime())/60000):null;
+return<><div className="min-h-screen bg-bg0 text-zinc-200"><header className="sticky top-0 z-40 bg-bg0/90 backdrop-blur-md border-b border-white/[.04]"><div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between"><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-400" style={{animation:"pulse2 2s infinite"}}/><span className="text-sm font-bold tracking-tight">MLB HRR</span></div><div className="flex items-center gap-3 text-[10px] text-zinc-500">{data&&<span className="hidden sm:inline">{data.date} · {data.games?.length} games{age!=null?` · ${age<60?age+"m":Math.floor(age/60)+"h"} ago`:""}</span>}<span className={`px-2 py-0.5 rounded-sm font-bold text-[9px] ${age&&age>720?"bg-amber-500/15 text-amber-400":"bg-emerald-500/15 text-emerald-400"}`}>{age&&age>720?"STALE":"LIVE"}</span><button onClick={()=>{setLoading(true);fetchD();fetchL()}} className="text-zinc-500 hover:text-zinc-300 transition">↻</button></div></div>
+<div className="max-w-7xl mx-auto px-4 flex gap-0.5 overflow-x-auto pb-0 scrollbar-none">{TABS.map(t=>{const badge=t.id==="live"?(lc>0?lc+" LIVE":fc>0?fc+" F":null):t.id==="results"&&fc>0?fc:null;return<button key={t.id} onClick={()=>setTab(t.id)} className={`px-3 py-2 text-xs font-medium border-b-2 transition-all whitespace-nowrap ${tab===t.id?"border-zinc-200 text-zinc-100":"border-transparent text-zinc-500 hover:text-zinc-300"}`}>{t.l}{badge!=null&&<span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-bold ml-1.5">{badge}</span>}</button>})}</div></header>
+<main className="max-w-7xl mx-auto px-4 py-4">{loading?<div className="flex flex-col items-center justify-center py-20 gap-3"><div className="w-6 h-6 border-2 border-zinc-700 border-t-zinc-400 rounded-full" style={{animation:"spin 0.7s linear infinite"}}/><span className="text-xs text-zinc-500">Loading...</span></div>:err?<div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 text-red-400 text-sm">{err}</div>:data&&<div style={{animation:"fadeUp 0.3s ease-out"}}>{tab==="top"&&<TopPlays data={data} onSelect={setSel}/>}{tab==="all"&&<AllPlayers data={data} onSelect={setSel}/>}{tab==="slate"&&<GameSlate data={data} onSelect={setSel}/>}{tab==="stacks"&&<Stacks data={data}/>}{tab==="history"&&<History data={data}/>}{tab==="live"&&<LiveScores live={live}/>}{tab==="results"&&<Results data={data} live={live}/>}</div>}</main></div>{sel&&<Modal player={sel} game={gm} onClose={()=>setSel(null)}/>}</>;
 }
-
-// ── Live boxscore cache ──────────────────────────────
-const LIVE_BS = {};  // gamePk -> boxscore data
-
-// ── WTD/MTD/YTD stats from accuracy history ──────────
-function periodStats(history) {
-  if (!history || !history.length) return { wtd: null, mtd: null, ytd: null };
-  const now = nowET();
-  const today = now.toLocaleDateString("en-CA");
-  const year = today.split("-")[0];
-  const month = today.split("-")[1];
-  const dayOfWeek = now.getDay(); // 0=Sun
-  const weekStart = new Date(now);
-  weekStart.setDate(weekStart.getDate() - dayOfWeek);
-  const weekStartStr = weekStart.toLocaleDateString("en-CA");
-
-  const calc = (days) => {
-    const valid = days.filter(d => d.top10HitRate != null);
-    if (!valid.length) return null;
-    return {
-      hitRate: Math.round(valid.reduce((s,d) => s + d.top10HitRate, 0) / valid.length * 10) / 10,
-      avgDiff: Math.round(valid.reduce((s,d) => s + (d.top10AvgDiff||0), 0) / valid.length * 100) / 100,
-      days: valid.length,
-    };
-  };
-  const wtdDays = history.filter(d => d.date >= weekStartStr && d.date < today);
-  const mtdDays = history.filter(d => d.date.startsWith(year + "-" + month) && d.date < today);
-  const ytdDays = history.filter(d => d.date.startsWith(year) && d.date < today);
-  return { wtd: calc(wtdDays), mtd: calc(mtdDays), ytd: calc(ytdDays) };
-}
-
-// ── Player detail popup ──────────────────────────────
-function showPlayer(name, team) {
-  const p = (DATA?.allPlayers||[]).find(x => x.name === name && x.team === team);
-  if (!p) return;
-  const gm = DATA?.games?.find(g => g.id === p.gameId);
-  const sp = gm ? (p.team === gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
-  const bd = breakdown(p.hrr, p.order, p);
-  const confColor = (p.confidence||0) >= 9 ? 'var(--green)' : (p.confidence||0) >= 7 ? 'var(--amber)' : 'var(--red)';
-
-  let h = `<button class="pp-close" onclick="closePlayer()">&times;</button>`;
-  h += `<div class="pp-name">${p.name}${streakTag(p.streakType)}${injTag(p.injured)}</div>`;
-  h += `<div class="pp-meta">${chip(p.team)} · ${p.pos} · #${p.order} · Bats ${p.bats} · ${p.isHome?"Home":"Away"}${gm?' · '+gm.time+' ET':''}</div>`;
-
-  // Core projection
-  h += '<div class="pp-grid">';
-  h += `<div class="pp-stat"><div class="l">HRR</div><div class="v" style="color:${p.tier==='A'?'var(--green)':p.tier==='B'?'var(--amber)':'var(--muted)'}">${fmt(p.hrr)}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">Confidence</div><div class="v" style="color:${confColor}">${p.confidence||'—'}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">Pick Score</div><div class="v">${p.pickScore?fmt(p.pickScore):'—'}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">H Proj</div><div class="v" style="color:var(--green)">${fmt(bd.h)}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">R Proj</div><div class="v" style="color:var(--blue)">${fmt(bd.r)}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">RBI Proj</div><div class="v" style="color:var(--amber)">${fmt(bd.rbi)}</div></div>`;
-  h += '</div>';
-
-  // Season stats
-  h += '<div class="pp-section">Season stats</div><div class="pp-grid">';
-  h += `<div class="pp-stat"><div class="l">AVG</div><div class="v">${p.avg?(p.avg*1000|0)/1000:'—'}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">OPS</div><div class="v">${(p.ops||0).toFixed(3)}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">wRC+</div><div class="v">${p.wrcPlus||'—'}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">PA</div><div class="v">${p.pa||'—'}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">L10 AVG</div><div class="v" style="color:${p.streakType==='hot'?'var(--green)':p.streakType==='cold'?'var(--blue)':'var(--muted)'}">${p.last10Avg?(p.last10Avg*1000|0)/1000:'—'}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">Hit Streak</div><div class="v">${p.hitStreak||0}</div></div>`;
-  h += '</div>';
-
-  // Savant profile
-  h += '<div class="pp-section">Statcast</div><div class="pp-grid">';
-  h += `<div class="pp-stat"><div class="l">xwOBA</div><div class="v">${p.xwoba?p.xwoba.toFixed(3):'—'}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">Barrel%</div><div class="v">${p.barrelPct!=null?p.barrelPct.toFixed(1)+'%':'—'}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">HardHit%</div><div class="v">${p.hardHitPct!=null?p.hardHitPct.toFixed(1)+'%':'—'}</div></div>`;
-  h += '</div>';
-
-  // Matchup
-  if (sp) {
-    h += '<div class="pp-section">Today\'s matchup</div>';
-    h += `<div style="font-size:13px;margin-bottom:6px"><strong>vs ${sp.name}</strong> ${handTag(sp.hand)} · ${fmt(sp.era)} ERA · ${sp.k9||'?'} K/9${sp.xera?' · xERA '+fmt(sp.xera):''}${sp.last3ERA!=null?' · <span style="color:'+(sp.last3ERA<3.5?'var(--green)':sp.last3ERA>5?'var(--red)':'var(--muted)')+'">L3: '+sp.last3ERA.toFixed(2)+'</span>':''}</div>`;
-    if (sp.last3 && sp.last3.length) {
-      h += '<div style="font-size:11px;color:var(--dim);margin-bottom:6px">Last 3 starts: '+sp.last3.map(g => (g.era!=null?g.era.toFixed(1):'—')+' ERA ('+g.ip+' IP, '+g.k+'K)').join(' · ')+'</div>';
-    }
-    // BvP
-    if (p.bvp) {
-      const bvpColor = p.bvp.avg >= .300 ? 'var(--green)' : p.bvp.avg < .200 ? 'var(--red)' : 'var(--muted)';
-      h += `<div class="pp-grid"><div class="pp-stat"><div class="l">BvP AVG</div><div class="v" style="color:${bvpColor}">${p.bvp.avg.toFixed(3)}</div></div>`;
-      h += `<div class="pp-stat"><div class="l">BvP AB</div><div class="v">${p.bvp.ab}</div></div>`;
-      h += `<div class="pp-stat"><div class="l">BvP HR</div><div class="v">${p.bvp.hr||0}</div></div></div>`;
-    } else {
-      h += '<div style="font-size:11px;color:var(--dim)">No career BvP data (< 5 AB)</div>';
-    }
-  }
-
-  // Game environment
-  if (gm) {
-    h += '<div class="pp-section">Environment</div><div class="pp-grid">';
-    h += `<div class="pp-stat"><div class="l">Park Factor</div><div class="v">${(gm.parkFactor||1).toFixed(2)}</div></div>`;
-    h += `<div class="pp-stat"><div class="l">Env Score</div><div class="v" style="color:${(gm.envScore||5)>=7?'var(--green)':(gm.envScore||5)>=4?'var(--amber)':'var(--blue)'}">${gm.envScore||'—'}</div></div>`;
-    h += `<div class="pp-stat"><div class="l">Impl Runs</div><div class="v">${p.impliedRuns?p.impliedRuns.toFixed(1):'—'}</div></div>`;
-    h += '</div>';
-    if (gm.weatherNote) h += `<div style="font-size:11px;color:var(--dim)">${gm.weatherNote}</div>`;
-  }
-
-  // Tier badge
-  h += `<div style="margin-top:10px;text-align:center">${tierB(p.tier)} <span style="font-size:12px;color:var(--dim);margin-left:6px">Tier ${p.tier}</span></div>`;
-
-  $("pp-content").innerHTML = h;
-  $("player-popup").classList.add("show");
-}
-
-function closePlayer() {
-  $("player-popup").classList.remove("show");
-}
-
-// Close popup with Escape key
-document.addEventListener("keydown", e => { if (e.key === "Escape") closePlayer(); });
-
-function tierB(t) {
-  return t==="A" ? '<span class="ta">A</span>'
-       : t==="B" ? '<span class="tb2">B</span>'
-       : '<span class="tc">C</span>';
-}
-
-function nowET() {
-  return new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
-}
-function gameTime(g) {
-  if (!g.time) return new Date(0);
-  const [ts, ap] = g.time.split(" ");
-  let [h, m] = ts.split(":").map(Number);
-  if (ap==="PM" && h!==12) h+=12;
-  if (ap==="AM" && h===12) h=0;
-  const d = nowET(); d.setHours(h,m,0,0); return d;
-}
-const notStarted = g => gameTime(g) > nowET();
-const upGames = () => (DATA.games||[]).filter(notStarted);
-const upIds = () => new Set(upGames().map(g=>g.id));
-
-// Break HRR into H/R/RBI components — server-side only (single source of truth)
-function breakdown(hrr, order, p) {
-  if (p && p.hProj != null && p.rProj != null && p.rbiProj != null) {
-    return { h: p.hProj, r: p.rProj, rbi: p.rbiProj };
-  }
-  // No server-side breakdown available (pre-v6 cached data)
-  return { h: 0, r: 0, rbi: 0 };
-}
-
-// ── init ──────────────────────────────────────────────
-window.addEventListener("DOMContentLoaded", () => {
-  fetchData();
-  $("tabs").addEventListener("click", e => {
-    const btn = e.target.closest(".tab"); if (!btn) return;
-    document.querySelectorAll(".tab").forEach(t=>t.classList.remove("on"));
-    document.querySelectorAll(".panel").forEach(p=>p.classList.remove("on"));
-    btn.classList.add("on");
-    AP = btn.dataset.p;
-    $("p-"+AP).classList.add("on");
-  });
-
-  // Global tooltip for [data-tip] elements
-  const gtip = $("gtip");
-  document.addEventListener("mouseover", e => {
-    const el = e.target.closest("[data-tip]");
-    if (!el) { gtip.style.display = "none"; return; }
-    gtip.textContent = el.getAttribute("data-tip");
-    gtip.style.display = "block";
-    const r = el.getBoundingClientRect();
-    let left = r.left + r.width / 2 - gtip.offsetWidth / 2;
-    let top = r.top - gtip.offsetHeight - 6;
-    // Keep on screen
-    if (left < 4) left = 4;
-    if (left + gtip.offsetWidth > window.innerWidth - 4) left = window.innerWidth - gtip.offsetWidth - 4;
-    if (top < 4) { top = r.bottom + 6; } // flip below if no room above
-    gtip.style.left = left + "px";
-    gtip.style.top = top + "px";
-  });
-  document.addEventListener("mouseout", e => {
-    const el = e.target.closest("[data-tip]");
-    if (el) gtip.style.display = "none";
-  });
-  document.addEventListener("keydown", e => {
-    if (e.key === "Escape") closePlayer();
-  });
-});
-
-async function fetchData(bust=false) {
-  setLoad(true);
-  try {
-    const r = await fetch(GIST+"?t="+Date.now()); // always bust CDN cache
-    if (!r.ok) throw new Error("HTTP "+r.status);
-    DATA = await r.json();
-    renderAll();
-    pollLive();
-  } catch(e) { showErr("Could not load projections.\n"+e.message); }
-}
-
-async function refreshAll() { await fetchData(true); await fetchLive(); }
-
-async function fetchLive() {
-  try {
-    const today = new Date().toLocaleDateString("en-CA",{timeZone:"America/New_York"});
-    const r = await fetch(`${MLBAPI}/schedule?sportId=1&date=${today}&hydrate=team,linescore`);
-    const d = await r.json();
-    const games = d.dates?.[0]?.games||[];
-    LIVE = {};
-    games.forEach(g=>LIVE[g.gamePk]=g);
-    const lc = games.filter(g=>g.status?.abstractGameState==="Live").length;
-    const fc = games.filter(g=>g.status?.abstractGameState==="Final").length;
-    $("lct").textContent = lc>0?lc+" LIVE":fc>0?fc+" final":"—";
-    $("rct").textContent = fc||"—";
-    renderLive();
-    if (fc>0) { renderResults(); loadTop10Results(); }
-    else if (Object.values(LIVE).some(g=>g.status?.abstractGameState==="Live")) renderTop();
-  } catch(e) { console.log("Live:",e.message); }
-}
-function pollLive() {
-  fetchLive();
-  if (liveTimer) clearInterval(liveTimer);
-  liveTimer = setInterval(()=>{ clearLiveBSCache(); fetchLive(); }, 60000);
-}
-
-function renderAll() {
-  const gen = DATA.generatedAt ? new Date(DATA.generatedAt) : null;
-  const age = gen ? Math.round((Date.now()-gen.getTime())/60000) : null;
-  const ageStr = age!=null?(age<60?age+"m ago":Math.floor(age/60)+"h ago"):"";
-  const stale = age!=null&&age>720;
-  $("hsub").textContent=(DATA.date||"")+" · "+(DATA.games?.length||0)+" games · "+ageStr;
-  const b=$("hbadge"); b.textContent=stale?"STALE":"LIVE"; b.className="badge "+(stale?"bs":"bl");
-  $("tabs").style.display="flex";
-  setLoad(false);
-  renderTop(); renderSlate(); renderAll2(); renderStacks(); renderHistory();
-  if (Object.keys(TOP10_RESULTS).length > 0) renderTop(); // re-render with cached results
-}
-
-// ── TOP PLAYS — fixed 10 for the day with result overlay ─────
-let TOP10_RESULTS = {}; // cache of actual results keyed by playerName+team
-
-async function loadTop10Results() {
-  const top10 = DATA.dailyTop10 || DATA.topPlays?.slice(0,10) || [];
-  if (!top10.length) return;
-  // Find gamePks for top10 players' games
-  const gamePkMap = {};
-  top10.forEach(p => {
-    const gm = DATA.games?.find(g => g.id === p.gameId);
-    if (gm?.gamePk) gamePkMap[gm.gamePk] = true;
-  });
-  // Check which are final in LIVE data
-  const finalPks = Object.keys(gamePkMap).filter(pk => LIVE[pk]?.status?.abstractGameState === "Final");
-  for (const pk of finalPks) {
-    try {
-      const r = await fetch(`${MLBAPI}/game/${pk}/boxscore`);
-      const bs = await r.json();
-      for (const side of ["away","home"]) {
-        const td = bs.teams?.[side]; if (!td) continue;
-        const abbr = td.team?.abbreviation;
-        for (const p of Object.values(td.players||{})) {
-          const s = p.stats?.batting; if (!s || (s.atBats||0)===0) continue;
-          const key = (p.person?.fullName||"")+"_"+abbr;
-          TOP10_RESULTS[key] = {
-            h: parseInt(s.hits||0),
-            r: parseInt(s.runs||0),
-            rbi: parseInt(s.rbi||0),
-            actual: parseInt(s.hits||0)+parseInt(s.runs||0)+parseInt(s.rbi||0)
-          };
-        }
-      }
-    } catch(e) { console.log("Top10 boxscore err:", pk, e.message); }
-  }
-  renderTop();
-}
-
-function renderTop() {
-  const top10 = DATA.dailyTop10 || (DATA.allPlayers||[]).slice(0,10);
-  const realPlayers = top10.filter(p => !p.isTBD && p.name !== "Lineup TBD");
-  const cA = realPlayers.filter(p=>p.tier==="A").length;
-  const cB = realPlayers.filter(p=>p.tier==="B").length;
-  const done = realPlayers.filter(p => {
-    const gm = DATA.games?.find(g=>g.id===p.gameId);
-    return gm?.gamePk && LIVE[gm.gamePk]?.status?.abstractGameState === "Final";
-  }).length;
-  const gamesWithLineups = (DATA.games||[]).filter(g => g.awayLineupAvailable || g.homeLineupAvailable).length;
-  const totalGames = (DATA.games||[]).length;
-  const avgConf = realPlayers.length ? Math.round(realPlayers.reduce((s,p) => s + (p.confidence||0), 0) / realPlayers.length * 10) / 10 : 0;
-  const ps = periodStats(DATA.accuracyHistory);
-
-  let h = `<div class="sg">
-    <div class="sc"><div class="l">Today's Picks</div><div class="v">${realPlayers.length}</div></div>
-    <div class="sc"><div class="l">Avg Confidence</div><div class="v" style="color:${avgConf>=9?'var(--green)':avgConf>=7?'var(--amber)':'var(--red)'}">${avgConf}</div></div>
-    <div class="sc"><div class="l">Completed</div><div class="v" style="color:${done>=realPlayers.length&&realPlayers.length>0?"var(--green)":done>0?"var(--amber)":"var(--muted)"}">${done}/${realPlayers.length}</div></div>
-    <div class="sc"><div class="l">Top HRR</div><div class="v">${realPlayers.length?fmt(realPlayers[0]?.hrr):"—"}</div></div>
-    <div class="sc"><div class="l">Lineups</div><div class="v" style="color:${gamesWithLineups===totalGames?'var(--green)':gamesWithLineups>0?'var(--amber)':'var(--muted)'}">${gamesWithLineups}/${totalGames}</div></div>
-  </div>`;
-
-  // WTD / MTD / YTD tracker
-  if (ps.wtd || ps.mtd || ps.ytd) {
-    h += '<div class="sg" style="margin-bottom:1rem">';
-    if (ps.wtd) h += `<div class="sc"><div class="l">WTD Hit Rate</div><div class="v" style="color:${ps.wtd.hitRate>=50?'var(--green)':'var(--amber)'}">${ps.wtd.hitRate}%</div><div style="font-size:10px;color:var(--dim)">${ps.wtd.days}d · diff ${ps.wtd.avgDiff>=0?"+":""}${ps.wtd.avgDiff}</div></div>`;
-    if (ps.mtd) h += `<div class="sc"><div class="l">MTD Hit Rate</div><div class="v" style="color:${ps.mtd.hitRate>=50?'var(--green)':'var(--amber)'}">${ps.mtd.hitRate}%</div><div style="font-size:10px;color:var(--dim)">${ps.mtd.days}d · diff ${ps.mtd.avgDiff>=0?"+":""}${ps.mtd.avgDiff}</div></div>`;
-    if (ps.ytd) h += `<div class="sc"><div class="l">YTD Hit Rate</div><div class="v" style="color:${ps.ytd.hitRate>=50?'var(--green)':'var(--amber)'}">${ps.ytd.hitRate}%</div><div style="font-size:10px;color:var(--dim)">${ps.ytd.days}d · diff ${ps.ytd.avgDiff>=0?"+":""}${ps.ytd.avgDiff}</div></div>`;
-    h += '</div>';
-  }
-
-  if (!realPlayers.length) {
-    const totalPlayers = (DATA.allPlayers||[]).length;
-    const confCount = (DATA.allPlayers||[]).filter(p => (p.confidence||0) >= 9.0).length;
-    h += `<div class="none-state"><div class="icon">⚾</div><div class="msg">${totalPlayers > 0 ? `${totalPlayers} players projected but none reach confidence ≥ 9.0 yet.<br>${gamesWithLineups}/${totalGames} lineups confirmed — more picks appear as lineups post.` : 'No confirmed lineups yet.<br>Lineups typically post 2-4 hours before game time.'}<br>The dashboard will update automatically as lineups are announced.</div></div>`;
-    $("p-top").innerHTML=h; return;
-  }
-
-  // Desktop table
-  h += `<div class="tw" style="margin-bottom:.5rem"><table class="desktop-tbl"><thead><tr>
-    <th${tip("#")}>#</th><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Pos")}>Pos</th><th${tip("Ord")}>Ord</th><th${tip("Opp SP")}>Opp SP</th><th${tip("Hand")}>Hand</th>
-    <th${tip("AVG")}>AVG</th><th${tip("L10")}>L10</th><th${tip("OPS")}>OPS</th><th${tip("wRC+")}>wRC+</th><th${tip("Barrel%")}>Barrel%</th><th${tip("BvP")}>BvP</th><th${tip("Conf")}>Conf</th><th${tip("H")}>H</th><th${tip("R")}>R</th><th${tip("RBI")}>RBI</th><th${tip("Proj HRR")}>Proj HRR</th><th${tip("Pick")}>Pick</th><th${tip("Actual")}>Actual</th><th${tip("Result")}>Result</th>
-  </tr></thead><tbody>`;
-
-  realPlayers.forEach((p,i) => {
-    const gm = DATA.games?.find(g=>g.id===p.gameId);
-    const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
-    const bd = breakdown(p.hrr, p.order, p);
-    const key = p.name+"_"+p.team;
-    const res = TOP10_RESULTS[key];
-    const isFinal = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Final";
-    const isLive  = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Live";
-
-    let resultCell = "—";
-    let rowBg = "";
-    if (isFinal && res) {
-      const hit = res.actual >= Math.round(p.hrr);
-      resultCell = hit
-        ? `<span style="color:var(--green);font-weight:700">✓ ${res.actual} HRR</span>`
-        : `<span style="color:var(--red);font-weight:700">✗ ${res.actual} HRR</span>`;
-      rowBg = hit
-        ? "background:rgba(34,197,94,.07);"
-        : "background:rgba(248,113,113,.07);";
-    } else if (isLive) {
-      resultCell = `<span style="color:var(--green);font-size:10px;font-weight:700">● LIVE</span>`;
-    }
-
-    h += `<tr style="${rowBg}">
-      <td class="n" style="color:var(--dim)">${i+1}</td>
-      <td style="font-weight:${p.tier==="A"?700:400}"><span class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)">${p.name}</span>${streakTag(p.streakType)}${injTag(p.injured)}</td>
-      <td>${chip(p.team)}</td>
-      <td style="color:var(--muted);font-size:12px">${p.pos}</td>
-      <td class="n" style="text-align:center;color:var(--muted)">${p.order}</td>
-      <td style="font-size:12px;color:var(--muted)">${sp?sp.name:"—"}</td>
-      <td>${sp?handTag(sp.hand):""}</td>
-      <td class="n">${p.avg?(p.avg*1000|0)/1000:"—"}</td>
-      <td class="n" style="color:${p.streakType==='hot'?'var(--green)':p.streakType==='cold'?'var(--blue)':'var(--muted)'}">${p.last10Avg?(p.last10Avg*1000|0)/1000:"—"}</td>
-      <td class="n">${(p.ops||0).toFixed(3)}</td>
-      <td class="n">${p.wrcPlus||"—"}</td>
-      <td class="n">${p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}</td>
-      <td class="n" style="font-size:11px;color:${p.bvp&&p.bvp.avg>=.300?'var(--green)':p.bvp&&p.bvp.avg<.200?'var(--red)':'var(--muted)'}">${p.bvp?p.bvp.avg.toFixed(3)+' <span style="font-size:9px;color:var(--dim)">('+p.bvp.ab+'AB)</span>':"—"}</td>
-      <td class="n" style="font-weight:600;color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'}">${p.confidence||"—"}</td>
-      <td class="n" style="color:var(--green)">${fmt(bd.h)}</td>
-      <td class="n" style="color:var(--blue)">${fmt(bd.r)}</td>
-      <td class="n" style="color:var(--amber)">${fmt(bd.rbi)}</td>
-      <td class="n" style="font-size:14px;font-weight:700">${fmt(p.hrr)} <span style="font-size:10px;color:var(--muted)">(${Math.round(p.hrr)})</span></td>
-      <td class="n" style="font-size:12px;color:var(--muted)">${p.pickScore?fmt(p.pickScore):"—"}</td>
-      <td class="n">${isFinal&&res?res.actual:"—"}</td>
-      <td>${resultCell}</td>
-    </tr>`;
-  });
-  h += '</tbody></table></div>';
-
-  // Mobile cards
-  h += '<div class="mobile-cards">';
-  realPlayers.forEach((p,i) => {
-    const gm = DATA.games?.find(g=>g.id===p.gameId);
-    const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
-    const bd = breakdown(p.hrr, p.order, p);
-    const key = p.name+"_"+p.team;
-    const res = TOP10_RESULTS[key];
-    const isFinal = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Final";
-    const isLive  = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Live";
-    let cardBorder = "var(--border)";
-    let hrrDisplay = fmt(p.hrr);
-    let resultLine = "";
-    if (isFinal && res) {
-      const hit = res.actual >= Math.round(p.hrr);
-      cardBorder = hit ? "rgba(34,197,94,.5)" : "rgba(248,113,113,.5)";
-      resultLine = `<div style="font-size:11px;font-weight:700;margin-top:3px;color:${hit?"var(--green)":"var(--red)"}">${hit?"✓":"✗"} Actual: ${res.actual} HRR (proj: ${Math.round(p.hrr)})</div>`;
-    } else if (isLive) {
-      cardBorder = "rgba(34,197,94,.4)";
-      resultLine = `<div style="font-size:10px;color:var(--green);margin-top:3px;font-weight:700">● LIVE</div>`;
-    }
-    const hrrColor = p.tier==="A"?"var(--green)":p.tier==="B"?"var(--amber)":"var(--muted)";
-    h += `<div class="tp-card" style="border-color:${cardBorder}">
-      <div class="tp-rank">${i+1}</div>
-      <div class="tp-info">
-        <div class="tp-name"><span class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)">${p.name}</span>${hot(p.hotStreak)}</div>
-        <div class="tp-meta">${chip(p.team)} ${p.pos} · #${p.order} · vs ${sp?sp.name+" "+handTag(sp.hand):"?"}</div>
-        ${resultLine}
-      </div>
-      <div class="tp-right">
-        <div class="tp-hrr" style="color:${hrrColor}">${hrrDisplay}</div>
-        <div class="tp-breakdown">H${fmt(bd.h)} R${fmt(bd.r)} RBI${fmt(bd.rbi)}</div>
-        <div style="margin-top:2px">${tierB(p.tier)} <span style="font-size:10px;font-family:var(--mono);color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'};margin-left:4px">${p.confidence||"—"}</span></div>
-      </div>
-    </div>`;
-  });
-  h += '</div>';
-  h += '<div class="note">Top plays filtered by confidence ≥ 9.0 · Ranked by pick score (HRR × confidence) · Green = actual ≥ projected · Red = below</div>';
-
-  // Previously Considered section
-  const considered = DATA.consideredToday || [];
-  if (considered.length) {
-    h += `<div style="margin-top:1.5rem">
-      <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px">
-        <span style="font-size:11px;background:var(--abg);color:var(--amber);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-weight:700">PREVIOUSLY CONSIDERED</span>
-        <span style="font-size:11px;color:var(--dim)">These players were in the top 10 earlier today before being replaced</span>
-      </div>`;
-    h += `<div class="tw"><table><thead><tr><th${tip("#")}>#</th><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Pos")}>Pos</th><th${tip("Opp SP")}>Opp SP</th><th${tip("Hand")}>Hand</th><th${tip("Proj HRR")}>Proj HRR</th><th${tip("Actual")}>Actual</th><th${tip("Result")}>Result</th></tr></thead><tbody>`;
-    considered.forEach((p, i) => {
-      const gm = DATA.games?.find(g=>g.id===p.gameId);
-      const sp = gm ? (p.team===gm.home.abbr ? gm.away.pitcher : gm.home.pitcher) : null;
-      const key = p.name+"_"+p.team;
-      const res = TOP10_RESULTS[key];
-      const isFinal = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Final";
-      const isLive  = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Live";
-      let resultCell = "—";
-      let rowBg = "";
-      if (isFinal && res) {
-        const hit = res.actual >= Math.round(p.hrr);
-        resultCell = hit
-          ? `<span style="color:var(--green);font-weight:700">✓ ${res.actual}</span>`
-          : `<span style="color:var(--red);font-weight:700">✗ ${res.actual}</span>`;
-        rowBg = hit ? "background:rgba(34,197,94,.05);" : "background:rgba(248,113,113,.05);";
-      } else if (isLive) {
-        resultCell = `<span style="color:var(--green);font-size:10px;font-weight:700">● LIVE</span>`;
-      }
-      h += `<tr style="${rowBg};opacity:.8">
-        <td class="n" style="color:var(--dim)">${i+1}</td>
-        <td style="color:var(--muted)"><span class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)">${p.name}</span>${hot(p.hotStreak)}</td>
-        <td>${chip(p.team)}</td>
-        <td style="color:var(--muted);font-size:12px">${p.pos}</td>
-        <td style="font-size:12px;color:var(--muted)">${sp?sp.name:"—"}</td>
-        <td>${sp?handTag(sp.hand):""}</td>
-        <td class="n" style="color:var(--muted)">${fmt(p.hrr)} <span style="font-size:10px;color:var(--dim)">(${Math.round(p.hrr)})</span></td>
-        <td class="n">${isFinal&&res?res.actual:"—"}</td>
-        <td>${resultCell}</td>
-      </tr>`;
-    });
-    h += '</tbody></table></div></div>';
-  }
-
-  $("p-top").innerHTML = h;
-}
-
-// ── GAME SLATE — lineups with H/R/RBI projections ────
-function renderSlate() {
-  const games = upGames();
-  if (!games.length) { $("p-slate").innerHTML='<div class="none-state"><div class="icon">⚾</div><div class="msg">All games started — check Live Scores.</div></div>'; return; }
-  let h = "";
-  games.forEach(g => {
-    // Use lineup from game data directly (includes TBD), fall back to allPlayers
-    const getLineup = (side) => {
-      const abbr = g[side].abbr;
-      const gamePlayers = (DATA.allPlayers||[]).filter(p=>p.team===abbr&&p.gameId===g.id).sort((a,b)=>a.order-b.order);
-      if (gamePlayers.length > 0) return gamePlayers;
-      // Fall back to game lineup data
-      return (g[side].lineup||[]).sort((a,b)=>(a.order||1)-(b.order||1));
-    };
-    const ap = getLineup("away");
-    const hp = getLineup("home");
-    const awayTBD = !g.awayLineupAvailable && (ap.length <= 1 && (ap[0]?.name === "Lineup TBD" || ap[0]?.isTBD));
-    const homeTBD = !g.homeLineupAvailable && (hp.length <= 1 && (hp[0]?.name === "Lineup TBD" || hp[0]?.isTBD));
-    
-    const lu = (pls, sp, isTBD) => {
-      let pi = '';
-      if (sp) {
-        const l3 = sp.last3 && sp.last3.length ? sp.last3.map(g => g.era != null ? g.era.toFixed(1) : "—").join(", ") : "";
-        pi = `<div class="pi"><strong>${sp.name}</strong> ${handTag(sp.hand)} <span class="n">${fmt(sp.era)} ERA · ${sp.k9||"?"} K/9</span>${k10tag(sp.k9||0)}${sp.last3ERA!=null?' · <span style="font-size:10px;color:'+(sp.last3ERA<3.5?'var(--green)':sp.last3ERA>5?'var(--red)':'var(--muted)')+'">L3: '+sp.last3ERA.toFixed(2)+'</span>':''}${l3?' <span style="font-size:9px;color:var(--dim)">('+l3+')</span>':''}</div>`;
-      }
-      let t = pi;
-      if (isTBD) {
-        t += '<div style="padding:12px 4px;text-align:center;color:var(--dim);font-size:12px;border:1px dashed var(--border);border-radius:6px;margin-top:6px">Awaiting lineup<br><span style="font-size:10px;color:var(--dim)">Lineups typically post 2-4 hrs before first pitch</span></div>';
-        return t;
-      }
-      t += `<div class="lhdr"><span></span><span>Player</span><span data-tip="Fielding position">Pos</span><span data-tip="Projected hits">H</span><span data-tip="Projected runs">R</span><span data-tip="Projected RBI">RBI</span><span data-tip="Hits+Runs+RBI projection">HRR</span></div>`;
-      pls.forEach(p => {
-        const rc = p.tier==="A"?"a":p.tier==="B"?"b":"";
-        const nc = p.tier==="A"?"a":p.tier==="B"?"b":"";
-        const bd = breakdown(p.hrr, p.order, p);
-        t += `<div class="lr ${rc}">
-          <span class="lnum">${p.order}</span>
-          <span class="lname ${nc}">${p.team?`<span class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)">${p.name}</span>`:p.name}${hot(p.hotStreak)}</span>
-          <span class="lpos">${p.pos}</span>
-          <span class="lsub ${nc}">${fmt(bd.h)}</span>
-          <span class="lsub ${nc}">${fmt(bd.r)}</span>
-          <span class="lsub ${nc}">${fmt(bd.rbi)}</span>
-          <span class="lsub ${nc}">${fmt(p.hrr)}</span>
-        </div>`;
-      });
-      return t;
-    };
-    h += `<div class="gc">
-      <div class="ghdr">
-        <div>
-          <div class="gtitle">${g.away.abbr} <span style="color:var(--muted);font-weight:400">@</span> ${g.home.abbr}${g.weatherRisk?' <span class="wx">⚠ WX</span>':""}</div>
-          <div class="gmeta">${g.time} ET · ${g.stadium}${awayTBD||homeTBD?' · <span style="color:var(--amber);font-size:10px">⏳ Lineups pending</span>':' · <span style="color:var(--green);font-size:10px">✓ Lineups confirmed</span>'}</div>
-        </div>
-        <div style="font-size:11px;font-family:var(--mono);color:var(--muted);text-align:right">
-          ${g.envScore?`<span style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:${g.envScore>=7?'var(--gbg)':g.envScore>=4?'var(--abg)':'var(--bbg)'};color:${g.envScore>=7?'var(--green)':g.envScore>=4?'var(--amber)':'var(--blue)'}">ENV ${g.envScore}</span> · `:""}PF ${(g.parkFactor||1).toFixed(2)}×${g.weatherNote?" · "+g.weatherNote:""}
-          ${g.oddsLine?`<br><span style="color:var(--amber)">O/U ${g.oddsLine.total}</span>${g.oddsLine.awayImplied&&g.oddsLine.awayImplied!==g.oddsLine.total/2?' <span style="font-size:10px;color:var(--dim)">('+g.away.abbr+' '+g.oddsLine.awayImplied.toFixed(1)+' / '+g.home.abbr+' '+g.oddsLine.homeImplied.toFixed(1)+')</span>':' <span style="color:var(--dim);font-size:10px">'+g.oddsLine.bookmaker+'</span>'}`:""}
-        </div>
-      </div>
-      <div class="gg">
-        <div><div class="tlbl">${g.away.name}</div>${lu(ap,g.away.pitcher,awayTBD)}</div>
-        <div><div class="tlbl">${g.home.name}</div>${lu(hp,g.home.pitcher,homeTBD)}</div>
-      </div>
-    </div>`;
-  });
-  $("p-slate").innerHTML = h;
-}
-
-// ── ALL PLAYERS — full table with filters ─────────────
-function renderAll2() {
-  const teams = [...new Set((DATA.allPlayers||[]).map(p=>p.team))].sort();
-  const positions = [...new Set((DATA.allPlayers||[]).map(p=>p.pos))].sort();
-  let fh = `<div class="fbar">
-    <input type="text" id="f-search" placeholder="Search player..." style="width:140px" oninput="applyFilters()">
-    <select id="f-team" onchange="applyFilters()">
-      <option value="">All Teams</option>
-      ${teams.map(t=>`<option>${t}</option>`).join("")}
-    </select>
-    <select id="f-tier" onchange="applyFilters()">
-      <option value="">All Tiers</option>
-      <option>A</option><option>B</option><option>C</option>
-    </select>
-    <select id="f-pos" onchange="applyFilters()">
-      <option value="">All Pos</option>
-      ${positions.map(p=>`<option>${p}</option>`).join("")}
-    </select>
-    <select id="f-hand" onchange="applyFilters()">
-      <option value="">Any Hand</option>
-      <option value="R">vs RHP</option>
-      <option value="L">vs LHP</option>
-    </select>
-    <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)">
-      <input type="checkbox" id="f-upcoming" checked onchange="applyFilters()"> Upcoming only
-    </label>
-    <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)">Min HRR
-      <input type="number" id="f-minhrr" value="0" min="0" max="5" step="0.1" style="width:52px" oninput="applyFilters()">
-    </label>
-    <button class="btn btn-sm" onclick="exportCSV()">Export CSV</button>
-  </div>
-  <div id="all-table"></div>`;
-  $("p-all").innerHTML = fh;
-  applyFilters();
-}
-
-function applyFilters() {
-  const search = ($("f-search")?.value||"").toLowerCase();
-  const team   = $("f-team")?.value||"";
-  const tier   = $("f-tier")?.value||"";
-  const pos    = $("f-pos")?.value||"";
-  const hand   = $("f-hand")?.value||"";
-  const upOnly = $("f-upcoming")?.checked !== false;
-  const minHRR = parseFloat($("f-minhrr")?.value||0);
-  const uid = upIds();
-  let all = [...(DATA?.allPlayers||[])];
-  if (upOnly) all = all.filter(p=>uid.has(p.gameId));
-  if (search) all = all.filter(p=>p.name.toLowerCase().includes(search)||(p.team||"").toLowerCase().includes(search));
-  if (team)   all = all.filter(p=>p.team===team);
-  if (tier)   all = all.filter(p=>p.tier===tier);
-  if (pos)    all = all.filter(p=>p.pos===pos);
-  if (minHRR) all = all.filter(p=>p.hrr>=minHRR);
-  if (hand) {
-    all = all.filter(p => {
-      const gm = DATA.games?.find(g=>g.id===p.gameId);
-      const sp = gm?(p.team===gm.home.abbr?gm.away.pitcher:gm.home.pitcher):null;
-      return sp?.hand === hand;
-    });
-  }
-  // Pre-compute projected H/R/RBI so they can be sorted
-  all.forEach(p => {
-    const bd = breakdown(p.hrr, p.order, p);
-    p.hProj = bd.h; p.rProj = bd.r; p.rbiProj = bd.rbi;
-    // Get opp SP for hand sorting
-    const gm = DATA.games?.find(g=>g.id===p.gameId);
-    const sp = gm?(p.team===gm.home.abbr?gm.away.pitcher:gm.home.pitcher):null;
-    p.spHand = sp?.hand||""; p.oppSP = sp?.name||"";
-    p.bvpDisplay = p.bvp ? p.bvp.avg.toFixed(3)+"("+p.bvp.ab+")" : "";
-  });
-  all.sort((a,b)=>{
-    const av=a[SK],bv=b[SK];
-    return typeof av==="string"?av.localeCompare(bv)*SD:((bv||0)-(av||0))*-SD;
-  });
-  const cols=[
-    {k:"name",l:"Player"},{k:"team",l:"Team"},{k:"pos",l:"Pos"},{k:"order",l:"Ord"},
-    {k:"bats",l:"B"},{k:"oppSP",l:"Opp SP"},{k:"spHand",l:"Hand"},
-    {k:"avg",l:"AVG"},{k:"last10Avg",l:"L10 AVG"},{k:"ops",l:"OPS"},{k:"wrcPlus",l:"wRC+"},
-    {k:"barrelPct",l:"Barrel%"},{k:"hardHitPct",l:"HardHit%"},{k:"bvpDisplay",l:"BvP"},
-    {k:"confidence",l:"Conf"},{k:"hProj",l:"H Proj"},{k:"rProj",l:"R Proj"},{k:"rbiProj",l:"RBI Proj"},
-    {k:"hrr",l:"HRR"},{k:"pickScore",l:"Pick"},{k:"tier",l:"Tier"}
-  ];
-  let h = `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">${all.length} players shown</div>`;
-  h += '<div class="tw"><table style="min-width:820px"><thead><tr>';
-  cols.forEach(c=>{
-    const ar=SK===c.k?(SD===-1?" ↓":" ↑"):"";
-    h+=`<th data-k="${c.k}"${tip(c.l)}>${c.l}${ar}</th>`;
-  });
-  h+="</tr></thead><tbody>";
-  all.forEach(p=>{
-    h+=`<tr>
-      <td style="font-weight:${p.tier==="A"?700:400}"><span class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)">${p.name}</span>${streakTag(p.streakType)}${injTag(p.injured)}</td>
-      <td>${chip(p.team)}</td>
-      <td style="color:var(--muted);font-size:12px">${p.pos}</td>
-      <td class="n" style="text-align:center">${p.order}</td>
-      <td class="n" style="text-align:center">${p.bats}</td>
-      <td style="font-size:12px;color:var(--muted)">${p.oppSP||"—"}</td>
-      <td>${p.spHand?handTag(p.spHand):""}</td>
-      <td class="n">${p.avg?(p.avg*1000|0)/1000:"—"}</td>
-      <td class="n" style="color:${p.streakType==='hot'?'var(--green)':p.streakType==='cold'?'var(--blue)':'var(--muted)'}">${p.last10Avg?(p.last10Avg*1000|0)/1000:"—"}</td>
-      <td class="n">${(p.ops||0).toFixed(3)}</td>
-      <td class="n">${p.wrcPlus||"—"}</td>
-      <td class="n">${p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}</td>
-      <td class="n">${p.hardHitPct!=null?p.hardHitPct.toFixed(1)+"%":"—"}</td>
-      <td class="n" style="font-size:11px;color:${p.bvp&&p.bvp.avg>=.300?'var(--green)':p.bvp&&p.bvp.avg<.200?'var(--red)':'var(--muted)'}">${p.bvpDisplay||"—"}</td>
-      <td class="n" style="font-weight:600;color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'}">${p.confidence||"—"}</td>
-      <td class="n" style="color:var(--green)">${fmt(p.hProj)}</td>
-      <td class="n" style="color:var(--blue)">${fmt(p.rProj)}</td>
-      <td class="n" style="color:var(--amber)">${fmt(p.rbiProj)}</td>
-      <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
-      <td class="n" style="color:var(--muted)">${p.pickScore?fmt(p.pickScore):"—"}</td>
-      <td>${tierB(p.tier)}</td>
-    </tr>`;
-  });
-  h+="</tbody></table></div>";
-  $("all-table").innerHTML=h;
-  document.querySelectorAll("#all-table th[data-k]").forEach(th=>{
-    th.onclick=()=>{const k=th.dataset.k;SK===k?SD*=-1:(SK=k,SD=-1);applyFilters();};
-  });
-}
-
-// ── STACKS ────────────────────────────────────────────
-function renderStacks() {
-  const uid = upIds();
-  const s2 = (DATA.stacks2||[]).filter(s=>uid.has(s.players[0]?.gameId));
-  const s3 = (DATA.stacks3||[]).filter(s=>uid.has(s.players[0]?.gameId));
-  const sec = (list, title) => {
-    let h = `<div class="section-title">${title}</div>`;
-    if (!list.length) return h+'<p style="color:var(--muted);margin-bottom:1.5rem">No upcoming stacks.</p>';
-    list.forEach((s,i)=>{
-      const pl = s.players.map(p=>{
-        const c=p.tier==="A"?"var(--green)":p.tier==="B"?"var(--amber)":"var(--text)";
-        return `<span style="color:${c}">${p.name} <span class="n" style="font-size:11px;color:var(--muted)">${fmt(p.hrr)}</span></span>`;
-      }).join('<span style="color:var(--dim);margin:0 3px">+</span>');
-      h+=`<div class="scard"><span class="srank">${i+1}</span>
-        <div style="min-width:65px">${chip(s.team)}<div style="font-size:10px;color:var(--dim);margin-top:2px">vs ${s.opp} · ${s.time}${s.impliedRuns?' · <span style="color:var(--amber)">'+s.impliedRuns.toFixed(1)+' impl</span>':""}</div>${s.adjacencyBonus>0?'<div style="font-size:9px;color:var(--green);margin-top:1px">+'+s.adjacencyBonus.toFixed(2)+' adj bonus</div>':""}</div>
-        <div class="splayers">${pl}</div>
-        <div class="stot">${(s.total||0).toFixed(2)}</div></div>`;
-    });
-    return `<div style="margin-bottom:1.5rem">${h}</div>`;
-  };
-  $("p-stacks").innerHTML = sec(s2,"2-Player Stacks")+sec(s3,"3-Player Stacks")+renderGameStacks();
-}
-
-function renderGameStacks() {
-  const gs = DATA.gameStacks || [];
-  if (!gs.length) return '';
-  let h = '<div style="margin-bottom:1.5rem"><div class="section-title">Game Stacks <span style="font-size:10px;color:var(--dim);font-weight:400">Both teams in high-total games (O/U 9+)</span></div>';
-  gs.forEach((s, i) => {
-    const pl = s.players.map(p => {
-      const c = p.team === s.away ? "var(--blue)" : "var(--amber)";
-      return `<span style="color:${c}">${p.name} <span class="n" style="font-size:10px;color:var(--dim)">${p.team} ${fmt(p.hrr)}</span></span>`;
-    }).join('<span style="color:var(--dim);margin:0 3px">+</span>');
-    h += `<div class="scard"><span class="srank">${i + 1}</span>
-      <div style="min-width:65px"><span style="font-weight:700">${s.away} @ ${s.home}</span><div style="font-size:10px;color:var(--dim);margin-top:2px">${s.time} · O/U ${s.total} · <span style="color:${s.envScore>=7?'var(--green)':s.envScore>=4?'var(--amber)':'var(--blue)'}">ENV ${s.envScore}</span></div></div>
-      <div class="splayers">${pl}</div>
-      <div class="stot">${(s.stackTotal || 0).toFixed(2)}</div></div>`;
-  });
-  return h + '</div>';
-}
-
-// ── HISTORY ──────────────────────────────────────────
-function renderHistory() {
-  const history = DATA?.accuracyHistory || [];
-  if (!history.length) {
-    $("p-history").innerHTML = '<div class="none-state"><div class="icon">📊</div><div class="msg">No historical data yet.<br>History builds automatically as each day completes.</div></div>';
-    return;
-  }
-
-  // Overall summary
-  const validDays = history.filter(d => d.top10HitRate != null);
-  let h = '';
-  if (validDays.length >= 1) {
-    const avgHitRate = Math.round(validDays.reduce((s,d) => s + d.top10HitRate, 0) / validDays.length * 10) / 10;
-    const avgDiff = Math.round(validDays.reduce((s,d) => s + (d.top10AvgDiff||0), 0) / validDays.length * 100) / 100;
-    const bestDay = validDays.reduce((best,d) => d.top10HitRate > best.top10HitRate ? d : best);
-    const worstDay = validDays.reduce((worst,d) => d.top10HitRate < worst.top10HitRate ? d : worst);
-    const totalPicks = validDays.length * 10;
-    const totalHits = validDays.reduce((s,d) => s + Math.round(d.top10HitRate / 10), 0);
-    h += `<div class="sg">
-      <div class="sc"><div class="l">Days tracked</div><div class="v">${validDays.length}</div></div>
-      <div class="sc"><div class="l">Avg hit rate</div><div class="v" style="color:${avgHitRate>=50?'var(--green)':'var(--amber)'}">${avgHitRate}%</div></div>
-      <div class="sc"><div class="l">Avg diff</div><div class="v" style="color:${avgDiff>=0?'var(--green)':'var(--red)'}">${avgDiff>=0?"+":""}${avgDiff}</div></div>
-      <div class="sc"><div class="l">Best day</div><div class="v" style="color:var(--green)">${bestDay.top10HitRate}%<div style="font-size:10px;color:var(--dim);font-weight:400">${bestDay.date}</div></div></div>
-      <div class="sc"><div class="l">Worst day</div><div class="v" style="color:var(--red)">${worstDay.top10HitRate}%<div style="font-size:10px;color:var(--dim);font-weight:400">${worstDay.date}</div></div></div>
-    </div>`;
-  }
-
-  // Day-by-day cards (newest first)
-  [...history].reverse().forEach(day => {
-    const hr = day.top10HitRate != null ? day.top10HitRate + "%" : "—";
-    const hrColor = day.top10HitRate >= 50 ? "var(--green)" : day.top10HitRate >= 30 ? "var(--amber)" : "var(--red)";
-    const diffStr = day.top10AvgDiff != null ? (day.top10AvgDiff >= 0 ? "+" : "") + day.top10AvgDiff : "—";
-    const diffColor = (day.top10AvgDiff||0) >= 0 ? "var(--green)" : "var(--red)";
-
-    h += `<div class="gc" style="margin-bottom:8px;cursor:pointer" onclick="toggleHistoryDay(this)">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap">
-        <div>
-          <div style="font-size:15px;font-weight:700">${day.date}<span class="chevron" style="margin-left:6px">▼</span></div>
-          <div style="font-size:11px;color:var(--muted);margin-top:1px">${day.gamesCompleted||"?"} games · ${day.totalPlayers||"?"} players</div>
-        </div>
-        <div style="display:flex;gap:16px;align-items:center">
-          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Hit rate</div><div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${hrColor}">${hr}</div></div>
-          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Avg diff</div><div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${diffColor}">${diffStr}</div></div>
-          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Tier A</div><div style="font-size:14px;font-weight:600;font-family:var(--mono);color:var(--muted)">${day.tierAHitRate!=null?day.tierAHitRate+"%":"—"}</div></div>
-        </div>
-      </div>
-      <div class="hist-detail" style="display:none"></div>
-    </div>`;
-
-    // Pre-build the top 10 detail table for this day (hidden until clicked)
-    if (day.top10 && day.top10.length) {
-      const detailId = "hd-" + day.date;
-      // We'll build it on click via toggleHistoryDay
-    }
-  });
-
-  h += '<div class="note" style="margin-top:1rem">Click any day to see the top 10 picks and results. History saves automatically on each new day.</div>';
-  $("p-history").innerHTML = h;
-}
-
-function toggleHistoryDay(card) {
-  const detail = card.querySelector(".hist-detail");
-  const chev = card.querySelector(".chevron");
-  if (!detail) return;
-  if (detail.style.display !== "none") {
-    detail.style.display = "none";
-    if (chev) chev.textContent = "▼";
-    return;
-  }
-  if (chev) chev.textContent = "▲";
-
-  // If already built, just show
-  if (detail.innerHTML) { detail.style.display = "block"; return; }
-
-  // Find this day in history
-  const dateStr = card.querySelector("div[style*='font-size:15px']")?.textContent?.replace("▼","").replace("▲","").trim();
-  const day = (DATA?.accuracyHistory || []).find(d => d.date === dateStr);
-  if (!day || !day.top10 || !day.top10.length) {
-    detail.innerHTML = '<div style="padding:8px;color:var(--dim);font-size:12px;border-top:1px solid var(--border);margin-top:8px">No top 10 data saved for this day.</div>';
-    detail.style.display = "block";
-    return;
-  }
-
-  let t = '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
-  t += '<table><thead><tr><th style="cursor:default">#</th><th style="cursor:default">Player</th><th style="cursor:default">Team</th><th style="cursor:default">Pos</th><th style="cursor:default">Ord</th><th style="cursor:default">Conf</th><th style="cursor:default">Proj HRR</th><th style="cursor:default">Tier</th><th style="cursor:default">Actual</th><th style="cursor:default">Result</th></tr></thead><tbody>';
-  day.top10.forEach((p, i) => {
-    const actual = p.actual;
-    const hit = actual != null ? actual >= Math.round(p.hrr) : null;
-    const resultCell = actual != null
-      ? (hit ? `<span style="color:var(--green);font-weight:700">✓ ${actual}</span>` : `<span style="color:var(--red);font-weight:700">✗ ${actual}</span>`)
-      : "—";
-    const rowBg = hit === true ? "background:rgba(34,197,94,.07);" : hit === false ? "background:rgba(248,113,113,.07);" : "";
-    t += `<tr style="${rowBg}">
-      <td class="n" style="color:var(--dim)">${i+1}</td>
-      <td style="font-weight:500">${p.name}</td>
-      <td>${chip(p.team)}</td>
-      <td style="color:var(--muted);font-size:12px">${p.pos||"—"}</td>
-      <td class="n" style="text-align:center">${p.order||"—"}</td>
-      <td class="n" style="font-weight:600;color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'}">${p.confidence||"—"}</td>
-      <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
-      <td>${tierB(p.tier)}</td>
-      <td class="n" style="font-weight:700;color:${actual!=null&&actual>=3?'var(--green)':actual!=null&&actual>=2?'var(--amber)':'var(--muted)'}">${actual!=null?actual:"—"}</td>
-      <td>${resultCell}</td>
-    </tr>`;
-  });
-  t += '</tbody></table></div>';
-  detail.innerHTML = t;
-  detail.style.display = "block";
-}
-function renderLive() {
-  const games = Object.values(LIVE);
-  if (!games.length) { $("p-live").innerHTML='<p style="color:var(--muted);padding:1rem">Checking scores... updates every 60s.</p>'; return; }
-  const live=games.filter(g=>g.status?.abstractGameState==="Live" && !g.status?.detailedState?.toLowerCase().includes("delay") && !g.status?.detailedState?.toLowerCase().includes("suspend"));
-  const delayed=games.filter(g=>{const d=g.status?.detailedState?.toLowerCase()||""; return d.includes("delay")||d.includes("suspend");});
-  const postponed=games.filter(g=>(g.status?.detailedState||"").toLowerCase().includes("postpone"));
-  const pre=games.filter(g=>g.status?.abstractGameState==="Preview"&&!(g.status?.detailedState||"").toLowerCase().includes("postpone"));
-  const fin=games.filter(g=>g.status?.abstractGameState==="Final");
-  let h="";
-  const sec=(list,label,col)=>{
-    if(!list.length) return "";
-    return `<div style="font-size:12px;font-weight:600;margin:${h?"1rem":0} 0 8px;color:${col}">${label}</div>`+list.map(liveCard).join("");
-  };
-  h+=sec(live,"⬤ In Progress","var(--green)");
-  h+=sec(delayed,"⚠ Delayed / Suspended","var(--amber)");
-  h+=sec(postponed,"✕ Postponed","var(--red)");
-  h+=sec(pre,"Upcoming","var(--muted)");
-  h+=sec(fin,"Final","var(--muted)");
-  $("p-live").innerHTML=h;
-}
-
-function liveCard(g) {
-  const st=g.status?.abstractGameState;
-  const det=g.status?.detailedState||"";
-  const aa=g.teams?.away?.team?.abbreviation||g.teams?.away?.team?.teamCode||"?";
-  const ha=g.teams?.home?.team?.abbreviation||g.teams?.home?.team?.teamCode||"?";
-  const an=g.teams?.away?.team?.shortName||g.teams?.away?.team?.name||"";
-  const hn=g.teams?.home?.team?.shortName||g.teams?.home?.team?.name||"";
-  const ls=g.linescore;
-  const ar=g.teams?.away?.score??ls?.teams?.away?.runs??"—";
-  const hr=g.teams?.home?.score??ls?.teams?.home?.runs??"—";
-  const isDelayed = det.toLowerCase().includes("delay");
-  const isSuspended = det.toLowerCase().includes("suspend");
-  const isPostponed = det.toLowerCase().includes("postpone");
-  let stxt, scls;
-  if (isPostponed) { stxt="Postponed"; scls="sp2"; }
-  else if (isSuspended) { stxt="Suspended"; scls="sp2"; }
-  else if (isDelayed) { stxt="⚠ "+det; scls="sp2"; }
-  else if (st==="Live") { stxt=(ls?.currentInningOrdinal||"")+" "+(ls?.inningHalf==="Top"?"▲":"▼"); scls="sl"; }
-  else if (st==="Final") { stxt="Final"; scls="sf"; }
-  else { stxt=new Date(g.gameDate).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZone:"America/New_York"}); scls="sp2"; }
-  let hre="";
-  if(ls&&st!=="Preview"){
-    const ah=ls.teams?.away?.hits||0,hh=ls.teams?.home?.hits||0;
-    const ae=ls.teams?.away?.errors||0,he=ls.teams?.home?.errors||0;
-    hre=`<div style="font-size:11px;color:var(--muted);margin-top:5px;font-family:var(--mono)">${aa} H:${ah} E:${ae} &nbsp;|&nbsp; ${ha} H:${hh} E:${he}</div>`;
-  }
-  const canExpand = st==="Live" || st==="Final";
-  const pk = g.gamePk;
-  return `<div class="gc ${st==="Live"?"live":""} ${canExpand?"live-expand":""}" style="margin-bottom:8px" ${canExpand?`onclick="toggleLiveBS(${pk},this)"`:""}>
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap">
-      <div><div style="font-size:15px;font-weight:700">${aa} @ ${ha}${canExpand?'<span class="chevron" id="chev-'+pk+'">▼</span>':""}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:1px">${an} vs ${hn} · ${g.venue?.name||""}</div></div>
-      <div style="text-align:right"><div class="gscore">${ar} – ${hr}</div><span class="gstatus ${scls}">${stxt}</span></div>
-    </div>${hre}
-    <div id="lbs-${pk}" style="display:none"></div>
-  </div>`;
-}
-
-async function toggleLiveBS(gamePk, card) {
-  const el = document.getElementById("lbs-"+gamePk);
-  const chev = document.getElementById("chev-"+gamePk);
-  if (!el) return;
-  if (el.style.display !== "none") {
-    el.style.display = "none";
-    if (chev) chev.textContent = "▼";
-    return;
-  }
-  if (chev) chev.textContent = "▲";
-  
-  // Show loading
-  el.innerHTML = '<div style="padding:8px;color:var(--muted);font-size:12px;border-top:1px solid var(--border);margin-top:8px">Loading box score...</div>';
-  el.style.display = "block";
-  
-  // Fetch or use cache
-  if (!LIVE_BS[gamePk]) {
-    try {
-      const r = await fetch(`${MLBAPI}/game/${gamePk}/boxscore`);
-      LIVE_BS[gamePk] = await r.json();
-    } catch(e) {
-      el.innerHTML = '<div style="padding:8px;color:var(--red);font-size:12px;border-top:1px solid var(--border);margin-top:8px">Could not load box score</div>';
-      return;
-    }
-  }
-  
-  const bs = LIVE_BS[gamePk];
-  let h = '<div class="live-bs">';
-  
-  for (const side of ["away", "home"]) {
-    const td = bs.teams?.[side];
-    if (!td) continue;
-    const abbr = td.team?.abbreviation || td.team?.teamCode || "?";
-    const batters = td.battingOrder || [];
-    const players = td.players || {};
-    
-    h += `<div style="margin-bottom:10px"><div style="font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text)">${abbr} — Hitters</div>`;
-    h += '<table><thead><tr><th style="cursor:default">Player</th><th style="cursor:default;text-align:center">AB</th><th style="cursor:default;text-align:center">R</th><th style="cursor:default;text-align:center">H</th><th style="cursor:default;text-align:center">RBI</th><th style="cursor:default;text-align:center">HR</th><th style="cursor:default;text-align:center">BB</th><th style="cursor:default;text-align:center">K</th><th style="cursor:default;text-align:center;color:var(--green)">HRR</th></tr></thead><tbody>';
-    
-    for (const id of batters) {
-      const p = players["ID"+id];
-      if (!p) continue;
-      const s = p.stats?.batting;
-      if (!s) continue;
-      const ab = parseInt(s.atBats||0);
-      const runs = parseInt(s.runs||0);
-      const hits = parseInt(s.hits||0);
-      const rbi = parseInt(s.rbi||0);
-      const hr = parseInt(s.homeRuns||0);
-      const bb = parseInt(s.baseOnBalls||0);
-      const k = parseInt(s.strikeOuts||0);
-      const hrr = hits + runs + rbi;
-      const pos = p.position?.abbreviation || "";
-      const hrrColor = hrr >= 3 ? "var(--green)" : hrr >= 2 ? "var(--amber)" : "var(--muted)";
-      h += `<tr>
-        <td class="pname">${p.person?.fullName||"?"} <span style="font-size:10px;color:var(--dim)">${pos}</span></td>
-        <td style="text-align:center">${ab}</td>
-        <td style="text-align:center">${runs}</td>
-        <td style="text-align:center">${hits}</td>
-        <td style="text-align:center">${rbi}</td>
-        <td style="text-align:center">${hr}</td>
-        <td style="text-align:center">${bb}</td>
-        <td style="text-align:center">${k}</td>
-        <td style="text-align:center;font-weight:700;color:${hrrColor}">${hrr}</td>
-      </tr>`;
-    }
-    h += '</tbody></table></div>';
-  }
-  h += '</div>';
-  el.innerHTML = h;
-}
-
-// Invalidate boxscore cache on each live poll so data refreshes
-function clearLiveBSCache() {
-  for (const pk of Object.keys(LIVE_BS)) {
-    const el = document.getElementById("lbs-"+pk);
-    // Only clear if the panel is currently open — force re-fetch on next toggle
-    if (el && el.style.display !== "none") {
-      delete LIVE_BS[pk];
-      toggleLiveBS(parseInt(pk), null).catch(()=>{});
-    } else {
-      delete LIVE_BS[pk];
-    }
-  }
-}
-
-// ── RESULTS ───────────────────────────────────────────
-async function renderResults() {
-  const fin=Object.values(LIVE).filter(g=>g.status?.abstractGameState==="Final");
-  if(!fin.length){$("p-results").innerHTML='<p style="color:var(--muted);padding:1rem">Results appear once games finish.</p>'+renderAccuracyHistory();return;}
-  $("p-results").innerHTML='<p style="color:var(--muted);padding:1rem">Loading boxscores...</p>';
-  const rows=[];
-  for(const g of fin){
-    try{
-      const r=await fetch(`${MLBAPI}/game/${g.gamePk}/boxscore`);
-      const bs=await r.json();
-      for(const side of["away","home"]){
-        const td=bs.teams?.[side];if(!td)continue;
-        const abbr=td.team?.abbreviation;
-        for(const p of Object.values(td.players||{})){
-          const s=p.stats?.batting;if(!s)continue;
-          if((s.atBats||0)===0)continue;
-          const hits=parseInt(s.hits||0),runs=parseInt(s.runs||0),rbi=parseInt(s.rbi||0);
-          const actual=hits+runs+rbi;
-          const fullName = p.person?.fullName||"";
-          const normName = n => n.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
-          let proj=DATA?.allPlayers?.find(pl=>pl.name===fullName&&pl.team===abbr);
-          if(!proj) proj=DATA?.allPlayers?.find(pl=>normName(pl.name)===normName(fullName)&&pl.team===abbr);
-          if(!proj) proj=DATA?.allPlayers?.find(pl=>normName(pl.name)===normName(fullName));
-          rows.push({name:p.person?.fullName||"?",abbr,hits,runs,rbi,actual,proj:proj?.hrr??null,tier:proj?.tier||null});
-        }
-      }
-    }catch(e){console.log("BS err",g.gamePk,e.message);}
-  }
-  rows.sort((a,b)=>b.actual-a.actual);
-
-  // Compute aggregate accuracy stats
-  const projected = rows.filter(r=>r.proj!==null);
-  const hitters = projected.filter(r=>r.actual>=Math.round(r.proj));
-  const hitRate = projected.length>0?Math.round(hitters.length/projected.length*1000)/10:0;
-  const avgDiff = projected.length>0?Math.round(projected.reduce((s,r)=>s+(r.actual-r.proj),0)/projected.length*100)/100:0;
-  const tierARows = projected.filter(r=>r.tier==="A");
-  const tierAHit = tierARows.length>0?Math.round(tierARows.filter(r=>r.actual>=Math.round(r.proj)).length/tierARows.length*1000)/10:0;
-  const tierBRows = projected.filter(r=>r.tier==="B");
-  const tierBHit = tierBRows.length>0?Math.round(tierBRows.filter(r=>r.actual>=Math.round(r.proj)).length/tierBRows.length*1000)/10:0;
-  const top3Actual = rows.slice(0,3).reduce((s,r)=>s+r.actual,0);
-
-  let h = `<div class="sg">
-    <div class="sc"><div class="l">Hit Rate</div><div class="v" style="color:${hitRate>=55?'var(--green)':hitRate>=45?'var(--amber)':'var(--red)'}">${hitRate}%</div></div>
-    <div class="sc"><div class="l">Avg Diff</div><div class="v" style="color:${avgDiff>=0?'var(--green)':'var(--red)'}">${avgDiff>=0?"+":""}${avgDiff}</div></div>
-    <div class="sc"><div class="l">Tier A Rate</div><div class="v" style="color:${tierAHit>=55?'var(--green)':'var(--amber)'}">${tierAHit}%</div></div>
-    <div class="sc"><div class="l">Tier B Rate</div><div class="v" style="color:var(--muted)">${tierBHit}%</div></div>
-    <div class="sc"><div class="l">Top 3 Actual</div><div class="v">${top3Actual}</div></div>
-    <div class="sc"><div class="l">Projected</div><div class="v">${projected.length}/${rows.length}</div></div>
-  </div>`;
-
-  h+='<div style="font-size:12px;color:var(--muted);margin-bottom:.75rem">Actual H+R+RBI vs projected HRR. Hit = actual ≥ rounded projection. "—" = bench/pinch-hit not in lineup.</div>';
-  h+=`<div class="tw"><table><thead><tr><th${tip("Player")}>Player</th><th${tip("Team")}>Team</th><th${tip("Tier")}>Tier</th><th${tip("H")}>H</th><th${tip("R")}>R</th><th${tip("RBI")}>RBI</th><th${tip("Actual")}>Actual</th><th${tip("Proj HRR")}>Projected</th><th${tip("Diff")}>Diff</th></tr></thead><tbody>`;
-  if(!rows.length){h+='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:1.5rem">No data yet.</td></tr>';}
-  else{rows.forEach(r=>{
-    const diff=r.proj!==null?Math.round((r.actual-r.proj)*100)/100:null;
-    const ds=diff!==null?(diff>=0?"+"+diff:""+diff):"—";
-    const dc=diff!==null?(diff>=0?"gg2":"gb2"):"";
-    h+=`<tr class="${r.actual>=3?"res-win":""}">
-      <td style="font-weight:500"><span class="plink" onclick="showPlayer(\`${r.name}\`,\`${r.abbr}\`)">${r.name}</span></td><td>${chip(r.abbr)}</td>
-      <td>${r.tier?tierB(r.tier):'<span class="tc">—</span>'}</td>
-      <td class="n">${r.hits}</td><td class="n">${r.runs}</td><td class="n">${r.rbi}</td>
-      <td class="n" style="font-size:15px;font-weight:700;color:${r.actual>=3?"var(--green)":r.actual>=2?"var(--amber)":"var(--muted)"}">${r.actual}</td>
-      <td class="n">${r.proj!==null?fmt(r.proj):"—"}</td>
-      <td class="n ${dc}">${ds}</td></tr>`;
-  });}
-  h+='</tbody></table></div>';
-
-  // Append accuracy history
-  h += renderAccuracyHistory();
-
-  $("p-results").innerHTML=h;
-}
-
-function renderAccuracyHistory() {
-  const history = DATA?.accuracyHistory || [];
-  if (!history.length) return '';
-  let h = '<div style="margin-top:1.5rem"><div class="section-title" style="display:flex;align-items:center;gap:8px">Model Accuracy History <span style="font-size:10px;color:var(--dim);font-weight:400">Last '+history.length+' days</span></div>';
-  
-  // Summary stats across all days
-  const validDays = history.filter(d => d.top10HitRate != null);
-  if (validDays.length >= 2) {
-    const avgHitRate = Math.round(validDays.reduce((s,d) => s + d.top10HitRate, 0) / validDays.length * 10) / 10;
-    const avgDiff = Math.round(validDays.reduce((s,d) => s + (d.top10AvgDiff||0), 0) / validDays.length * 100) / 100;
-    const bestDay = validDays.reduce((best,d) => d.top10HitRate > best.top10HitRate ? d : best);
-    h += `<div class="sg" style="margin-bottom:.75rem">
-      <div class="sc"><div class="l">Avg Hit Rate</div><div class="v" style="color:${avgHitRate>=55?'var(--green)':'var(--amber)'}">${avgHitRate}%</div></div>
-      <div class="sc"><div class="l">Avg Diff</div><div class="v" style="color:${avgDiff>=0?'var(--green)':'var(--red)'}">${avgDiff>=0?"+":""}${avgDiff}</div></div>
-      <div class="sc"><div class="l">Best Day</div><div class="v" style="color:var(--green)">${bestDay.top10HitRate}%</div></div>
-      <div class="sc"><div class="l">Days Tracked</div><div class="v">${validDays.length}</div></div>
-    </div>`;
-  }
-
-  h += `<div class="tw"><table><thead><tr><th${tip("Date")}>Date</th><th${tip("Top 10 Hit%")}>Top 10 Hit%</th><th${tip("Avg Diff")}>Avg Diff</th><th${tip("Tier A")}>Tier A</th><th${tip("Tier B")}>Tier B</th><th${tip("Games")}>Games</th></tr></thead><tbody>`;
-  [...history].reverse().forEach(d => {
-    const hr = d.top10HitRate != null ? d.top10HitRate + "%" : "—";
-    const hrColor = d.top10HitRate >= 60 ? "var(--green)" : d.top10HitRate >= 40 ? "var(--amber)" : "var(--red)";
-    h += `<tr>
-      <td class="n">${d.date}</td>
-      <td class="n" style="font-weight:700;color:${hrColor}">${hr}</td>
-      <td class="n" style="color:${(d.top10AvgDiff||0)>=0?'var(--green)':'var(--red)'}">${d.top10AvgDiff!=null?(d.top10AvgDiff>=0?"+":"")+d.top10AvgDiff:"—"}</td>
-      <td class="n">${d.tierAHitRate!=null?d.tierAHitRate+"%":"—"}</td>
-      <td class="n">${d.tierBHitRate!=null?d.tierBHitRate+"%":"—"}</td>
-      <td class="n">${d.gamesCompleted||"—"}</td>
-    </tr>`;
-  });
-  h += '</tbody></table></div></div>';
-  return h;
-}
-
-function exportCSV() {
-  if(!DATA?.allPlayers) return;
-  const uid=upIds();
-  const team=$("f-team")?.value||"";
-  const tier=$("f-tier")?.value||"";
-  const pos=$("f-pos")?.value||"";
-  const upOnly=$("f-upcoming")?.checked!==false;
-  let all=[...(DATA.allPlayers||[])];
-  if(upOnly)all=all.filter(p=>uid.has(p.gameId));
-  if(team)all=all.filter(p=>p.team===team);
-  if(tier)all=all.filter(p=>p.tier===tier);
-  if(pos)all=all.filter(p=>p.pos===pos);
-  const rows=all.map(p=>{
-    const gm=DATA.games?.find(g=>g.id===p.gameId);
-    const sp=gm?(p.team===gm.home.abbr?gm.away.pitcher:gm.home.pitcher):null;
-    const bd=breakdown(p.hrr,p.order,p);
-    return `"${p.name}",${p.team},${p.pos},${p.order},${p.bats},"${sp?sp.name:"—"}",${sp?sp.hand:""},${(p.ops||0).toFixed(3)},${p.wrcPlus||0},${p.bvp?p.bvp.avg.toFixed(3):""},${p.bvp?p.bvp.ab:""},${p.confidence||""},${fmt(bd.h)},${fmt(bd.r)},${fmt(bd.rbi)},${fmt(p.hrr)},${p.pickScore?fmt(p.pickScore):""},${p.tier}`;
-  });
-  const csv=["Player,Team,Pos,Order,Bats,Opp SP,SP Hand,OPS,wRC+,BvP AVG,BvP AB,Conf,H Proj,R Proj,RBI Proj,HRR,Pick,Tier",...rows].join("\n");
-  const a=document.createElement("a");
-  a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
-  a.download="hrr-"+(DATA.date||"today")+".csv";
-  a.click();
-}
-
-function setLoad(on) {
-  $("p-load").style.display=on?"flex":"none";
-  if(!on){
-    document.querySelectorAll(".panel").forEach(p=>p.classList.remove("on"));
-    $("p-"+AP).classList.add("on");
-  }
-}
-function showErr(msg){
-  $("p-load").style.display="none";
-  $("p-err").style.display="block";
-  $("p-err").innerHTML='<div class="ebox">'+msg+'</div>';
-}
+ReactDOM.render(<App/>,document.getElementById("root"));
 </script>
-<style>
-@media(min-width:641px){.mobile-cards{display:none}}
-@media(max-width:640px){.desktop-tbl{display:none}}
-</style>
 </body>
 </html>
