@@ -527,18 +527,29 @@ async function getPitcherStats(pitcherId) {
 // ── Injury list ────────────────────────────────────────
 let injuredPlayers = new Set();
 async function fetchInjuries() {
-  try {
-    const data = await mlbFetch(`/injuries?season=${CURRENT_YEAR}&sportId=1`);
-    const injuries = data.injuries || [];
-    injuries.forEach(inj => {
-      const id = inj.player?.id;
-      const status = (inj.status || "").toLowerCase();
-      if (id && (status.includes("day-to-day") || status.includes("10-day") || status.includes("15-day") || status.includes("injured"))) {
-        injuredPlayers.add(String(id));
-      }
-    });
-    console.log(`  Injuries: ${injuredPlayers.size} players on IL/DTD`);
-  } catch(e) { console.log("  Injury fetch error:", e.message); }
+  // Try multiple endpoint formats — MLB API changes these periodically
+  const endpoints = [
+    `/injuries?sportId=1`,
+    `/injuries?season=${CURRENT_YEAR}&sportId=1`,
+    `/injuries?season=${CURRENT_YEAR}`,
+  ];
+  for (const ep of endpoints) {
+    try {
+      const data = await mlbFetch(ep);
+      const injuries = data.injuries || [];
+      if (!injuries.length) continue;
+      injuries.forEach(inj => {
+        const id = inj.player?.id;
+        const status = (inj.status || "").toLowerCase();
+        if (id && (status.includes("day-to-day") || status.includes("10-day") || status.includes("15-day") || status.includes("injured"))) {
+          injuredPlayers.add(String(id));
+        }
+      });
+      console.log(`  Injuries: ${injuredPlayers.size} players on IL/DTD (via ${ep})`);
+      return;
+    } catch(e) { /* try next endpoint */ }
+  }
+  console.log("  Injury fetch: all endpoints failed — skipping injury data");
 }
 
 // ── Batter vs Pitcher career stats ────────────────────
