@@ -574,7 +574,9 @@ function renderTop() {
   }
 
   if (!realPlayers.length) {
-    h += `<div class="none-state"><div class="icon">⚾</div><div class="msg">No confirmed lineups yet.<br>Lineups typically post 2-4 hours before game time.<br>The dashboard will update automatically as lineups are announced.</div></div>`;
+    const totalPlayers = (DATA.allPlayers||[]).length;
+    const confCount = (DATA.allPlayers||[]).filter(p => (p.confidence||0) >= 9.0).length;
+    h += `<div class="none-state"><div class="icon">⚾</div><div class="msg">${totalPlayers > 0 ? `${totalPlayers} players projected but none reach confidence ≥ 9.0 yet.<br>${gamesWithLineups}/${totalGames} lineups confirmed — more picks appear as lineups post.` : 'No confirmed lineups yet.<br>Lineups typically post 2-4 hours before game time.'}<br>The dashboard will update automatically as lineups are announced.</div></div>`;
     $("p-top").innerHTML=h; return;
   }
 
