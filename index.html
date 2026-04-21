@@ -422,8 +422,11 @@ function tierB(t) {
        : '<span class="tc">C</span>';
 }
 
+let _nowETCache = null, _nowETTime = 0;
 function nowET() {
-  return new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"}));
+  const t = Date.now();
+  if (!_nowETCache || t - _nowETTime > 60000) { _nowETCache = new Date(new Date().toLocaleString("en-US",{timeZone:"America/New_York"})); _nowETTime = t; }
+  return new Date(_nowETCache.getTime()); // return copy to prevent mutation
 }
 function gameTime(g) {
   if (!g.time) return new Date(0);
@@ -819,7 +822,7 @@ function renderAll2() {
   const teams = [...new Set((DATA.allPlayers||[]).map(p=>p.team))].sort();
   const positions = [...new Set((DATA.allPlayers||[]).map(p=>p.pos))].sort();
   let fh = `<div class="fbar">
-    <input type="text" id="f-search" placeholder="Search player..." style="width:140px" oninput="applyFilters()">
+    <input type="text" id="f-search" placeholder="Search player..." style="width:140px" oninput="debouncedFilter()">
     <select id="f-team" onchange="applyFilters()">
       <option value="">All Teams</option>
       ${teams.map(t=>`<option>${t}</option>`).join("")}
@@ -849,6 +852,10 @@ function renderAll2() {
   $("p-all").innerHTML = fh;
   applyFilters();
 }
+
+// Debounce helper for search input
+let _filterTimer = null;
+function debouncedFilter() { clearTimeout(_filterTimer); _filterTimer = setTimeout(applyFilters, 200); }
 
 function applyFilters() {
   const search = ($("f-search")?.value||"").toLowerCase();
