@@ -769,13 +769,15 @@ async function getTodayGames() {
   console.log(`Fetching schedule for ${TODAY_ET}...`);
   const data = await mlbFetch(`/schedule?sportId=1&date=${TODAY_ET}&hydrate=team,venue,probablePitcher`);
   const games = [];
+  let finalCount = 0;
   for (const date of data.dates || []) {
     for (const game of date.games || []) {
-      if (game.status?.abstractGameState === "Final") continue;
+      game._isFinal = game.status?.abstractGameState === "Final";
+      if (game._isFinal) finalCount++;
       games.push(game);
     }
   }
-  console.log(`Found ${games.length} games`);
+  console.log(`Found ${games.length} games (${finalCount} final)`);
   return games;
 }
 
