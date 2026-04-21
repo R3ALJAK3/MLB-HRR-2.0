@@ -7,21 +7,23 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0a0a0c;--bg2:#13131a;--bg3:#1c1c26;--bg4:#242433;
-  --border:rgba(255,255,255,.07);--border2:rgba(255,255,255,.13);
-  --text:#f0f0f0;--muted:#888;--dim:#444;
-  --green:#22c55e;--gbg:rgba(34,197,94,.12);--gdim:rgba(34,197,94,.06);
+  --bg:#08080a;--bg2:#0e0e12;--bg3:#16161e;--bg4:#1e1e2a;
+  --border:rgba(255,255,255,.05);--border2:rgba(255,255,255,.10);
+  --text:#e4e4e7;--muted:#71717a;--dim:#3f3f46;
+  --green:#10b981;--gbg:rgba(16,185,129,.12);--gdim:rgba(16,185,129,.05);
   --amber:#f59e0b;--abg:rgba(245,158,11,.12);
   --blue:#60a5fa;--bbg:rgba(96,165,250,.1);
-  --red:#f87171;--rbg:rgba(248,113,113,.1);
+  --red:#ef4444;--rbg:rgba(239,68,68,.1);
   --purple:#a78bfa;--pbg:rgba(167,139,250,.1);
-  --mono:'SF Mono','Fira Code',monospace;
+  --mono:'SF Mono','Fira Code','Cascadia Code',monospace;
   --r:8px;--rl:10px;
 }
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes scaleIn{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:scale(1)}}
 html,body{height:100%;overflow-x:hidden}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.5}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;font-size:14px;line-height:1.5}
 
-.header{background:var(--bg2);border-bottom:1px solid var(--border);padding:.7rem 1rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem;position:sticky;top:0;z-index:100}
+.header{background:rgba(8,8,10,.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:.7rem 1rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem;position:sticky;top:0;z-index:100}
 .logo{font-size:15px;font-weight:700;display:flex;align-items:center;gap:7px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -168,6 +170,24 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .note{font-size:11px;color:var(--dim);margin-top:7px}
 .section-title{font-size:14px;font-weight:600;margin-bottom:8px}
 
+/* confidence bar */
+.conf-bar{display:inline-flex;align-items:center;gap:4px}
+.conf-bar .cv{font-size:12px;font-weight:600;font-family:var(--mono);min-width:28px;text-align:right}
+.conf-bar .cb{width:40px;height:3px;border-radius:2px;background:rgba(255,255,255,.04);overflow:hidden;position:relative}
+.conf-bar .cf{height:100%;border-radius:2px;transition:width .5s ease}
+
+/* panel fade-in */
+.panel.on{animation:fadeUp .3s ease-out}
+
+/* clickable player names */
+.plink{cursor:pointer;transition:color .15s}
+.plink:hover{color:#fff;text-decoration:underline;text-decoration-color:var(--dim);text-underline-offset:2px}
+
+/* scrollbar refinement */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.06);border-radius:3px}
+
 @media(max-width:640px){
   .hsub{display:none}
   .main{padding:.75rem}
@@ -231,6 +251,14 @@ const streakTag = t => t==="hot"?'<span class="htag">🔥HOT</span>':t==="warm"?
 const injTag = i => i ? '<span style="font-size:9px;background:var(--abg);color:var(--amber);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700">⚠DTD</span>' : "";
 const k10tag = k => k > 10 ? '<span class="k10">K10+</span>' : "";
 const handTag = h => h==="L" ? '<span class="hand-l">LHP</span>' : '<span class="hand-r">RHP</span>';
+
+// Confidence bar with gradient fill
+function confBar(v) {
+  if (!v && v !== 0) return '—';
+  const val = v || 0;
+  const color = val >= 9 ? 'var(--green)' : val >= 7 ? 'var(--amber)' : val >= 5 ? '#f97316' : 'var(--red)';
+  return `<span class="conf-bar"><span class="cv" style="color:${color}">${val.toFixed(1)}</span><span class="cb"><span class="cf" style="width:${(val/10)*100}%;background:${color}"></span></span></span>`;
+}
 
 // ── Column tooltip definitions ───────────────────────
 const TIPS = {
@@ -557,11 +585,11 @@ function renderTop() {
   const ps = periodStats(DATA.accuracyHistory);
 
   let h = `<div class="sg">
-    <div class="sc"><div class="l">Today's Picks</div><div class="v">${realPlayers.length}</div></div>
-    <div class="sc"><div class="l">Avg Confidence</div><div class="v" style="color:${avgConf>=9?'var(--green)':avgConf>=7?'var(--amber)':'var(--red)'}">${avgConf}</div></div>
-    <div class="sc"><div class="l">Completed</div><div class="v" style="color:${done>=realPlayers.length&&realPlayers.length>0?"var(--green)":done>0?"var(--amber)":"var(--muted)"}">${done}/${realPlayers.length}</div></div>
-    <div class="sc"><div class="l">Top HRR</div><div class="v">${realPlayers.length?fmt(realPlayers[0]?.hrr):"—"}</div></div>
-    <div class="sc"><div class="l">Lineups</div><div class="v" style="color:${gamesWithLineups===totalGames?'var(--green)':gamesWithLineups>0?'var(--amber)':'var(--muted)'}">${gamesWithLineups}/${totalGames}</div></div>
+    <div class="sc" style="animation:fadeUp .4s ease-out 0s both"><div class="l">Today's Picks</div><div class="v">${realPlayers.length}</div></div>
+    <div class="sc" style="animation:fadeUp .4s ease-out .05s both"><div class="l">Avg Confidence</div><div class="v" style="color:${avgConf>=9?'var(--green)':avgConf>=7?'var(--amber)':'var(--red)'}">${avgConf}</div></div>
+    <div class="sc" style="animation:fadeUp .4s ease-out .1s both"><div class="l">Completed</div><div class="v" style="color:${done>=realPlayers.length&&realPlayers.length>0?"var(--green)":done>0?"var(--amber)":"var(--muted)"}">${done}/${realPlayers.length}</div></div>
+    <div class="sc" style="animation:fadeUp .4s ease-out .15s both"><div class="l">Top HRR</div><div class="v">${realPlayers.length?fmt(realPlayers[0]?.hrr):"—"}</div></div>
+    <div class="sc" style="animation:fadeUp .4s ease-out .2s both"><div class="l">Lineups</div><div class="v" style="color:${gamesWithLineups===totalGames?'var(--green)':gamesWithLineups>0?'var(--amber)':'var(--muted)'}">${gamesWithLineups}/${totalGames}</div></div>
   </div>`;
 
   // WTD / MTD / YTD tracker
@@ -609,7 +637,7 @@ function renderTop() {
       resultCell = `<span style="color:var(--green);font-size:10px;font-weight:700">● LIVE</span>`;
     }
 
-    h += `<tr style="${rowBg}">
+    h += `<tr style="${rowBg}animation:fadeUp .4s ease-out ${i*.04}s both;">
       <td class="n" style="color:var(--dim)">${i+1}</td>
       <td style="font-weight:${p.tier==="A"?700:400}"><span class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)">${p.name}</span>${streakTag(p.streakType)}${injTag(p.injured)}</td>
       <td>${chip(p.team)}</td>
@@ -623,7 +651,7 @@ function renderTop() {
       <td class="n">${p.wrcPlus||"—"}</td>
       <td class="n">${p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}</td>
       <td class="n" style="font-size:11px;color:${p.bvp&&p.bvp.avg>=.300?'var(--green)':p.bvp&&p.bvp.avg<.200?'var(--red)':'var(--muted)'}">${p.bvp?p.bvp.avg.toFixed(3)+' <span style="font-size:9px;color:var(--dim)">('+p.bvp.ab+'AB)</span>':"—"}</td>
-      <td class="n" style="font-weight:600;color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'}">${p.confidence||"—"}</td>
+      <td>${confBar(p.confidence)}</td>
       <td class="n" style="color:var(--green)">${fmt(bd.h)}</td>
       <td class="n" style="color:var(--blue)">${fmt(bd.r)}</td>
       <td class="n" style="color:var(--amber)">${fmt(bd.rbi)}</td>
@@ -667,7 +695,7 @@ function renderTop() {
       <div class="tp-right">
         <div class="tp-hrr" style="color:${hrrColor}">${hrrDisplay}</div>
         <div class="tp-breakdown">H${fmt(bd.h)} R${fmt(bd.r)} RBI${fmt(bd.rbi)}</div>
-        <div style="margin-top:2px">${tierB(p.tier)} <span style="font-size:10px;font-family:var(--mono);color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'};margin-left:4px">${p.confidence||"—"}</span></div>
+        <div style="margin-top:2px">${tierB(p.tier)} <span style="margin-left:4px">${confBar(p.confidence)}</span></div>
       </div>
     </div>`;
   });
@@ -890,7 +918,7 @@ function applyFilters() {
       <td class="n">${p.barrelPct!=null?p.barrelPct.toFixed(1)+"%":"—"}</td>
       <td class="n">${p.hardHitPct!=null?p.hardHitPct.toFixed(1)+"%":"—"}</td>
       <td class="n" style="font-size:11px;color:${p.bvp&&p.bvp.avg>=.300?'var(--green)':p.bvp&&p.bvp.avg<.200?'var(--red)':'var(--muted)'}">${p.bvpDisplay||"—"}</td>
-      <td class="n" style="font-weight:600;color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'}">${p.confidence||"—"}</td>
+      <td>${confBar(p.confidence)}</td>
       <td class="n" style="color:var(--green)">${fmt(p.hProj)}</td>
       <td class="n" style="color:var(--blue)">${fmt(p.rProj)}</td>
       <td class="n" style="color:var(--amber)">${fmt(p.rbiProj)}</td>
@@ -1044,7 +1072,7 @@ function toggleHistoryDay(card) {
       <td>${chip(p.team)}</td>
       <td style="color:var(--muted);font-size:12px">${p.pos||"—"}</td>
       <td class="n" style="text-align:center">${p.order||"—"}</td>
-      <td class="n" style="font-weight:600;color:${(p.confidence||0)>=9?'var(--green)':(p.confidence||0)>=7?'var(--amber)':'var(--red)'}">${p.confidence||"—"}</td>
+      <td>${confBar(p.confidence)}</td>
       <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
       <td>${tierB(p.tier)}</td>
       <td class="n" style="font-weight:700;color:${actual!=null&&actual>=3?'var(--green)':actual!=null&&actual>=2?'var(--amber)':'var(--muted)'}">${actual!=null?actual:"—"}</td>
@@ -1220,9 +1248,15 @@ async function renderResults() {
           const actual=hits+runs+rbi;
           const fullName = p.person?.fullName||"";
           const normName = n => n.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
-          let proj=DATA?.allPlayers?.find(pl=>pl.name===fullName&&pl.team===abbr);
-          if(!proj) proj=DATA?.allPlayers?.find(pl=>normName(pl.name)===normName(fullName)&&pl.team===abbr);
-          if(!proj) proj=DATA?.allPlayers?.find(pl=>normName(pl.name)===normName(fullName));
+          // Search allPlayers, dailyTop10, and consideredToday for projections
+          const searchPools = [DATA?.allPlayers, DATA?.dailyTop10, DATA?.consideredToday].filter(Boolean);
+          let proj = null;
+          for (const pool of searchPools) {
+            proj = pool.find(pl=>pl.name===fullName&&pl.team===abbr);
+            if (!proj) proj = pool.find(pl=>normName(pl.name)===normName(fullName)&&pl.team===abbr);
+            if (!proj) proj = pool.find(pl=>normName(pl.name)===normName(fullName));
+            if (proj) break;
+          }
           rows.push({name:p.person?.fullName||"?",abbr,hits,runs,rbi,actual,proj:proj?.hrr??null,tier:proj?.tier||null});
         }
       }
