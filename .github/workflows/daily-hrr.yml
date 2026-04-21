@@ -15,7 +15,11 @@ on:
   workflow_dispatch:
 
 jobs:
-steps:
+  generate-hrr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -23,19 +27,20 @@ steps:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: 'npm' # Added caching to speed up your workflow
+          cache: "npm"
+          cache-dependency-path: scripts/package-lock.json
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         working-directory: scripts
 
       - name: Generate HRR data
-        # The '||' allows it to attempt a second run if the first fails due to API timeouts
-        run: node generate-hrr.js || node generate-hrr.js
+        run: node generate-hrr.js
         working-directory: scripts
         env:
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
 
       - name: Notify on failure
         if: failure()
