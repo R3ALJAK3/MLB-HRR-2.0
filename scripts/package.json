@@ -2,6 +2,8 @@
   "name": "mlb-hrr-generator",
   "version": "3.0.0",
   "type": "module",
+  "description": "Daily MLB HRR projection generator using free MLB Stats API",
+  "main": "generate-hrr.js",
   "scripts": {
     "generate": "node generate-hrr.js"
   },
