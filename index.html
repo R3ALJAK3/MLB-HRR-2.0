@@ -191,6 +191,8 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .lu-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;animation:fadeUp .3s ease-out both}
 .lu-card .lu-rm{background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;padding:2px 6px;border-radius:4px}
 .lu-card .lu-rm:hover{background:var(--rbg)}
+.exp-opt{padding:6px 12px;font-size:12px;color:var(--text);cursor:pointer;transition:background .15s}
+.exp-opt:hover{background:var(--bg4);color:#fff}
 .lu-total{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:12px;margin-top:8px;text-align:center}
 .lu-warn{font-size:11px;padding:6px 10px;border-radius:6px;margin-top:6px;background:rgba(245,158,11,.08);color:var(--amber);border:1px solid rgba(245,158,11,.15)}
 .lu-empty{text-align:center;padding:3rem 1rem;color:var(--dim)}
@@ -532,8 +534,12 @@ window.addEventListener("DOMContentLoaded", () => {
     const el = e.target.closest("[data-tip]");
     if (el) gtip.style.display = "none";
   });
+  document.addEventListener("click", e => {
+    const dd = $("export-dd"); if (!dd) return;
+    if (!e.target.closest("#export-dd") && !e.target.closest("[onclick*='export-dd']")) dd.style.display = "none";
+  });
   document.addEventListener("keydown", e => {
-    if (e.key === "Escape") { closePlayer(); closeCompare(); closeShare(); }
+    if (e.key === "Escape") { closePlayer(); closeCompare(); closeShare(); const dd=$("export-dd"); if(dd)dd.style.display="none"; }
     // Tab shortcuts: 1-8
     if (!e.ctrlKey && !e.metaKey && !e.altKey && TAB_KEYS[e.key] && document.activeElement?.tagName !== "INPUT") {
       const tabId = TAB_KEYS[e.key];
@@ -1521,7 +1527,7 @@ function renderLineup() {
   const el = $("p-lineup");
   if (!el) return;
   let h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div class="section-title" style="margin:0">My Lineup</div><div>';
-  h += `<button class="btn" onclick="exportDK()" style="margin-right:4px">DK Export</button>`;
+  h += `<div style="position:relative;display:inline-block"><button class="btn" onclick="document.getElementById('export-dd').style.display=document.getElementById('export-dd').style.display==='block'?'none':'block'" style="margin-right:4px">Export ▾</button><div id="export-dd" style="display:none;position:absolute;top:100%;left:0;z-index:20;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;min-width:160px;padding:4px 0;margin-top:4px"><div class="exp-opt" onclick="exportBook('dk')">DraftKings</div><div class="exp-opt" onclick="exportBook('fd')">FanDuel</div><div class="exp-opt" onclick="exportBook('mgm')">BetMGM</div><div class="exp-opt" onclick="exportBook('fan')">Fanatics Sportsbook</div><div class="exp-opt" onclick="exportBook('b365')">Bet365</div><div class="exp-opt" onclick="exportBook('generic')">Generic CSV</div></div></div>`;
   h += `<button class="btn" onclick="clearLineup()" style="color:var(--red)">Clear</button></div></div>`;
 
   if (!MY_LINEUP.length) {
@@ -1811,13 +1817,82 @@ const TAB_KEYS = {"1":"top","2":"slate","3":"all","4":"stacks","5":"lineup","6":
 // ══════════════════════════════════════════════════════
 // ── 12. DRAFTKINGS EXPORT ────────────────────────────
 // ══════════════════════════════════════════════════════
-function exportDK() {
+function exportBook(book) {
+  document.getElementById('export-dd').style.display='none';
   const players = MY_LINEUP.length ? MY_LINEUP : (DATA?.dailyTop10||[]).filter(p=>!p.isTBD);
   if (!players.length) return;
-  const rows = players.map(p => `"${p.name}",${p.team},${p.pos},${fmt(p.hrr)},${p.confidence||""},${p.tier}`);
-  const csv = ["Name,Team,Position,Projected HRR,Confidence,Tier",...rows].join("\n");
-  const a = document.createElement("a"); a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
-  a.download="dk-lineup-"+(DATA?.date||"today")+".csv"; a.click();
+
+  const posMap = {P:"P",C:"C","1B":"1B","2B":"2B","3B":"3B",SS:"SS",LF:"OF",CF:"OF",RF:"OF",OF:"OF",DH:"UTIL"};
+  const date = DATA?.date || new Date().toLocaleDateString("en-CA");
+  let csv = "", filename = "";
+
+  if (book === "dk") {
+    // DraftKings format
+    csv = "Position,Name + ID,Name,ID,Roster Position,Salary,Game Info,TeamAbbrev,AvgPointsPerGame\n";
+    players.forEach(p => {
+      const pos = posMap[p.pos] || "UTIL";
+      const gm = DATA?.games?.find(g=>g.id===p.gameId);
+      const gameInfo = gm ? `${gm.away?.abbr}@${gm.home?.abbr} ${gm.time||""}` : "";
+      csv += `${pos},"${p.name}","${p.name}",,${pos},,${gameInfo},${p.team},${fmt(p.hrr)}\n`;
+    });
+    filename = `dk-lineup-${date}.csv`;
+  }
+  else if (book === "fd") {
+    // FanDuel format
+    csv = "Position,Nickname,FPPG,Played,Salary,Game,Team,Opponent,Injury Indicator,Injury Details\n";
+    players.forEach(p => {
+      const pos = posMap[p.pos] || "UTIL";
+      const gm = DATA?.games?.find(g=>g.id===p.gameId);
+      const opp = gm ? (p.team===gm.home?.abbr ? gm.away?.abbr : gm.home?.abbr) : "";
+      const gameInfo = gm ? `${gm.away?.abbr}@${gm.home?.abbr}` : "";
+      csv += `${pos},"${p.name}",${fmt(p.hrr)},,0,${gameInfo},${p.team},${opp},,\n`;
+    });
+    filename = `fd-lineup-${date}.csv`;
+  }
+  else if (book === "mgm") {
+    // BetMGM format
+    csv = "Player,Position,Team,Game,Projected HRR,Confidence,Pick Score,Tier\n";
+    players.forEach(p => {
+      const gm = DATA?.games?.find(g=>g.id===p.gameId);
+      const gameInfo = gm ? `${gm.away?.abbr}@${gm.home?.abbr}` : "";
+      csv += `"${p.name}",${p.pos},${p.team},${gameInfo},${fmt(p.hrr)},${p.confidence||""},${p.pickScore?fmt(p.pickScore):""},${p.tier}\n`;
+    });
+    filename = `betmgm-lineup-${date}.csv`;
+  }
+  else if (book === "fan") {
+    // Fanatics Sportsbook format
+    csv = "Player Name,Position,Team,Matchup,HRR Projection,Confidence Score,Tier,Batting Order\n";
+    players.forEach(p => {
+      const gm = DATA?.games?.find(g=>g.id===p.gameId);
+      const matchup = gm ? `${gm.away?.abbr} @ ${gm.home?.abbr}` : "";
+      csv += `"${p.name}",${p.pos},${p.team},"${matchup}",${fmt(p.hrr)},${p.confidence||""},${p.tier},${p.order}\n`;
+    });
+    filename = `fanatics-lineup-${date}.csv`;
+  }
+  else if (book === "b365") {
+    // Bet365 format
+    csv = "Name,Team,Position,Order,OPS,Projected HRR,Confidence,Pick Score\n";
+    players.forEach(p => {
+      const full = (DATA?.allPlayers||[]).find(x=>x.name===p.name&&x.team===p.team);
+      csv += `"${p.name}",${p.team},${p.pos},${p.order},${full?(full.ops||0).toFixed(3):""},${fmt(p.hrr)},${p.confidence||""},${p.pickScore?fmt(p.pickScore):""}\n`;
+    });
+    filename = `bet365-lineup-${date}.csv`;
+  }
+  else {
+    // Generic
+    csv = "Name,Team,Position,Order,Bats,Projected HRR,Confidence,Pick Score,Tier,H Proj,R Proj,RBI Proj\n";
+    players.forEach(p => {
+      const full = (DATA?.allPlayers||[]).find(x=>x.name===p.name&&x.team===p.team);
+      const bd = breakdown(p.hrr, p.order, p);
+      csv += `"${p.name}",${p.team},${p.pos},${p.order},${full?.bats||""},${fmt(p.hrr)},${p.confidence||""},${p.pickScore?fmt(p.pickScore):""},${p.tier},${fmt(bd.h)},${fmt(bd.r)},${fmt(bd.rbi)}\n`;
+    });
+    filename = `hrr-lineup-${date}.csv`;
+  }
+
+  const a = document.createElement("a");
+  a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+  a.download = filename;
+  a.click();
 }
 </script>
 <style>
