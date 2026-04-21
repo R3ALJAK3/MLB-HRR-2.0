@@ -7,7 +7,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#08080a;--bg2:#0e0e12;--bg3:#16161e;--bg4:#1e1e2a;
+  --bg:#08080a;--bg2:#1a1a1f;--bg3:#222228;--bg4:#2a2a32;
   --border:rgba(255,255,255,.05);--border2:rgba(255,255,255,.10);
   --text:#e4e4e7;--muted:#71717a;--dim:#3f3f46;
   --green:#10b981;--gbg:rgba(16,185,129,.12);--gdim:rgba(16,185,129,.05);
@@ -48,12 +48,12 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
 /* stat cards */
 .sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-bottom:1rem}
-.sc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:.75rem}
+.sc{background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:var(--r);padding:.75rem}
 .sc .l{font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.4px}
 .sc .v{font-size:20px;font-weight:700;font-family:var(--mono)}
 
 /* tables */
-.tw{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tw{background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:var(--rl);overflow-x:auto;-webkit-overflow-scrolling:touch}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:7px 8px;font-size:10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;text-transform:uppercase;letter-spacing:.3px}
 th:hover{color:var(--text)}
@@ -75,7 +75,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .hand-l{font-size:9px;background:var(--bbg);color:var(--blue);padding:1px 4px;border-radius:3px;font-family:var(--mono);font-weight:700}
 
 /* top plays cards */
-.tp-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:.75rem;margin-bottom:6px;display:flex;align-items:center;gap:.75rem}
+.tp-card{background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:var(--r);padding:.75rem;margin-bottom:6px;display:flex;align-items:center;gap:.75rem}
 .tp-rank{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:18px;text-align:center}
 .tp-info{flex:1;min-width:0}
 .tp-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -85,7 +85,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .tp-breakdown{font-size:10px;color:var(--muted);margin-top:1px;font-family:var(--mono)}
 
 /* game cards */
-.gc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:1rem;margin-bottom:.75rem}
+.gc{background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:var(--rl);padding:1rem;margin-bottom:.75rem}
 .gc.live{border-color:rgba(34,197,94,.3)}
 .ghdr{display:flex;justify-content:space-between;align-items:flex-start;gap:.5rem;margin-bottom:.9rem;flex-wrap:wrap}
 .gtitle{font-size:15px;font-weight:700}
@@ -122,7 +122,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .fbar label{font-size:11px;color:var(--muted)}
 
 /* stack cards */
-.scard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:.75rem 1rem;margin-bottom:6px;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.scard{background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:var(--r);padding:.75rem 1rem;margin-bottom:6px;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
 .srank{font-family:var(--mono);font-size:12px;color:var(--dim);min-width:18px}
 .splayers{flex:1;display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:12px}
 .stot{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--green);margin-left:auto}
