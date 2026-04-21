@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Daily MLB HRR projection generator using free MLB Stats API",
   "main": "generate-hrr.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "generate": "node generate-hrr.js"
   },
