@@ -2,16 +2,14 @@ name: MLB HRR Daily Update
 
 on:
   schedule:
-    # All times UTC — ET = UTC-4 (EDT) or UTC-5 (EST)
     - cron: "0 13 * * *"   # 9:00 AM ET
     - cron: "0 15 * * *"   # 11:00 AM ET
-    - cron: "0 16 * * *"   # 12:00 PM ET (catches early afternoon lineups)
+    - cron: "0 16 * * *"   # 12:00 PM ET
     - cron: "0 17 * * *"   # 1:00 PM ET
     - cron: "0 19 * * *"   # 3:00 PM ET
     - cron: "0 21 * * *"   # 5:00 PM ET
     - cron: "0 23 * * *"   # 7:00 PM ET
 
-  # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
 
 jobs:
@@ -27,23 +25,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
-          cache-dependency-path: scripts/package-lock.json
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
         working-directory: scripts
 
       - name: Generate HRR data
-        run: node generate-hrr.js
+        # Retry logic: If the first run fails due to API timeout, try once more
+        run: node generate-hrr.js || node generate-hrr.js
         working-directory: scripts
         env:
           GIST_ID: ${{ secrets.GIST_ID }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-
-      - name: Notify on failure
-        if: failure()
-        run: |
-          echo "::error::HRR generation failed. Check logs above."
-          echo "::warning::Dashboard will show yesterday's data until next run."
