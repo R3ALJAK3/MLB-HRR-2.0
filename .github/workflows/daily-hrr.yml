@@ -5,6 +5,7 @@ on:
     # All times UTC — ET = UTC-4 (EDT) or UTC-5 (EST)
     - cron: "0 13 * * *"   # 9:00 AM ET
     - cron: "0 15 * * *"   # 11:00 AM ET
+    - cron: "0 16 * * *"   # 12:00 PM ET (catches early afternoon lineups)
     - cron: "0 17 * * *"   # 1:00 PM ET
     - cron: "0 19 * * *"   # 3:00 PM ET
     - cron: "0 21 * * *"   # 5:00 PM ET
@@ -26,9 +27,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "npm"
+          cache-dependency-path: scripts/package-lock.json
 
       - name: Install dependencies
-        run: rm -rf node_modules && npm install
+        run: npm ci || npm install
         working-directory: scripts
 
       - name: Generate HRR data
