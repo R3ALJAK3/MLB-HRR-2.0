@@ -262,10 +262,13 @@ async function mlbFetch(path) {
 
 async function safeFetch(url, opts = {}) {
   try {
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, ...opts });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: controller.signal, ...opts });
+    clearTimeout(timeout);
     if (!res.ok) return null;
     return res;
-  } catch(e) { console.log(`  safeFetch error (${url.slice(0,80)}): ${e.message}`); return null; }
+  } catch(e) { console.log(`  safeFetch error: ${e.message} (${url.slice(0,120)})`); return null; }
 }
 
 // ── Retry wrapper for MLB API ─────────────────────────
@@ -416,11 +419,24 @@ async function getFullPlayerStats(playerId) {
   if (!playerId) return null;
   if (playerCache[playerId]) return playerCache[playerId];
   try {
-    const [seasonRes, splitsRes, logRes] = await Promise.all([
+    const [seasonRes, logRes] = await Promise.all([
       mlbFetch(`/people/${playerId}?hydrate=stats(group=hitting,type=season,season=${CURRENT_YEAR})`).catch(() => null),
-      mlbFetch(`/people/${playerId}/stats?stats=vsLeft,vsRight&season=${CURRENT_YEAR}&group=hitting`).catch(() => null),
       mlbFetch(`/people/${playerId}/stats?stats=gameLog&season=${CURRENT_YEAR}&group=hitting&limit=15`).catch(() => null),
     ]);
+
+    // Platoon splits — try multiple endpoint formats (MLB API changes these)
+    // Use safeFetch (no retries) since 400 means wrong format, not transient error
+    let splitsRes = null;
+    const splitsEndpoints = [
+      `/people/${playerId}/stats?stats=statSplits&season=${CURRENT_YEAR}&group=hitting&sitCodes=vl,vr`,
+      `/people/${playerId}/stats?stats=vsLeft,vsRight&season=${CURRENT_YEAR}&group=hitting`,
+    ];
+    for (const ep of splitsEndpoints) {
+      try {
+        const res = await fetch(`${MLB}${ep}`);
+        if (res.ok) { splitsRes = await res.json(); break; }
+      } catch { /* try next */ }
+    }
 
     const seasonStats = seasonRes?.people?.[0]?.stats?.find(s => s.type?.displayName === "season")?.splits?.[0]?.stat;
     const ops = seasonStats ? (safeFloat(seasonStats.obp, 0) + safeFloat(seasonStats.slg, 0)) : CONFIG.LEAGUE_AVG_OPS;
@@ -434,15 +450,30 @@ async function getFullPlayerStats(playerId) {
     const xwoba = sv?.xwoba || null;
     const wrcPlus = xwoba ? Math.round((xwoba / CONFIG.LEAGUE_XWOBA) * 100) : Math.round((ops / CONFIG.LEAGUE_AVG_OPS) * 100);
 
-    // Platoon splits
+    // Platoon splits parsing
     let vsLeftOPS = null, vsRightOPS = null;
     if (splitsRes?.stats) {
       for (const stat of splitsRes.stats) {
-        const s = stat.splits?.[0]?.stat;
-        if (!s) continue;
-        const o = safeFloat(s.obp, 0) + safeFloat(s.slg, 0);
-        if (stat.type?.displayName === "vsLeft") vsLeftOPS = o;
-        if (stat.type?.displayName === "vsRight") vsRightOPS = o;
+        // Handle vsLeft/vsRight format
+        const typeName = stat.type?.displayName || "";
+        if (typeName === "vsLeft" || typeName === "vsRight") {
+          const s = stat.splits?.[0]?.stat;
+          if (!s) continue;
+          const o = safeFloat(s.obp, 0) + safeFloat(s.slg, 0);
+          if (typeName === "vsLeft") vsLeftOPS = o;
+          if (typeName === "vsRight") vsRightOPS = o;
+        }
+        // Handle statSplits format (sitCodes)
+        if (typeName === "statSplits" || typeName === "statSplit") {
+          for (const split of stat.splits || []) {
+            const code = split.split?.code || split.split?.description || "";
+            const s = split.stat;
+            if (!s) continue;
+            const o = safeFloat(s.obp, 0) + safeFloat(s.slg, 0);
+            if (code === "vl" || code.toLowerCase().includes("left")) vsLeftOPS = o;
+            if (code === "vr" || code.toLowerCase().includes("right")) vsRightOPS = o;
+          }
+        }
       }
     }
 
@@ -527,7 +558,6 @@ async function getPitcherStats(pitcherId) {
 // ── Injury list ────────────────────────────────────────
 let injuredPlayers = new Set();
 async function fetchInjuries() {
-  // Try multiple endpoint formats — MLB API changes these periodically
   const endpoints = [
     `/injuries?sportId=1`,
     `/injuries?season=${CURRENT_YEAR}&sportId=1`,
@@ -535,7 +565,9 @@ async function fetchInjuries() {
   ];
   for (const ep of endpoints) {
     try {
-      const data = await mlbFetch(ep);
+      const res = await fetch(`${MLB}${ep}`);
+      if (!res.ok) continue;
+      const data = await res.json();
       const injuries = data.injuries || [];
       if (!injuries.length) continue;
       injuries.forEach(inj => {
@@ -545,11 +577,11 @@ async function fetchInjuries() {
           injuredPlayers.add(String(id));
         }
       });
-      console.log(`  Injuries: ${injuredPlayers.size} players on IL/DTD (via ${ep})`);
+      console.log(`  Injuries: ${injuredPlayers.size} players on IL/DTD`);
       return;
-    } catch(e) { /* try next endpoint */ }
+    } catch { /* try next */ }
   }
-  console.log("  Injury fetch: all endpoints failed — skipping injury data");
+  console.log("  Injury fetch: all endpoints unavailable — skipping");
 }
 
 // ── Batter vs Pitcher career stats ────────────────────
