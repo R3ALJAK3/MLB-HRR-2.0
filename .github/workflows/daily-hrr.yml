@@ -2,16 +2,14 @@ name: MLB HRR Daily Update
 
 on:
   schedule:
-    # All times UTC — ET = UTC-4 (EDT) or UTC-5 (EST)
-    - cron: "0 13 * * *"   # 9:00 AM ET
-    - cron: "0 15 * * *"   # 11:00 AM ET
-    - cron: "0 16 * * *"   # 12:00 PM ET (catches early afternoon lineups)
-    - cron: "0 17 * * *"   # 1:00 PM ET
-    - cron: "0 19 * * *"   # 3:00 PM ET
-    - cron: "0 21 * * *"   # 5:00 PM ET
-    - cron: "0 23 * * *"   # 7:00 PM ET
+    - cron: "0 13 * * *"
+    - cron: "0 15 * * *"
+    - cron: "0 16 * * *"
+    - cron: "0 17 * * *"
+    - cron: "0 19 * * *"
+    - cron: "0 21 * * *"
+    - cron: "0 23 * * *"
 
-  # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
 
 jobs:
@@ -27,11 +25,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
-          cache-dependency-path: scripts/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
         working-directory: scripts
 
       - name: Generate HRR data
