@@ -1296,6 +1296,9 @@ async function main() {
   ];
   if (newlyDropped.length) console.log(`Previously considered: +${newlyDropped.length} (${newlyDropped.map(p=>p.name).join(", ")})`);
 
+  // ── Set today's date so accuracy calc triggers on next day's run ──
+  enriched.date = TODAY_ET;
+
   // ── Accuracy history — compute previous day's results on day change ──
   enriched.accuracyHistory = existing?.accuracyHistory || [];
   if (existing && existing.date !== TODAY_ET && existing.dailyTop10?.length) {
