@@ -293,6 +293,8 @@ tr:hover td{background:rgba(255,255,255,.02)}
 <script>
 const MLBAPI = "https://statsapi.mlb.com/api/v1";
 const GIST = "https://gist.githubusercontent.com/R3ALJAK3/2b4a2e18268a955fd76247ca91156f94/raw/hrr-data.json";
+  // Set this to your history Gist's raw URL once created. Falls back to GIST if empty.
+const HISTORY_GIST = "https://gist.githubusercontent.com/R3ALJAK3/f6d2e7c04f81bb80b806ee4c635bfecd/raw/accuracy-history.json";
 let DATA = null, LIVE = {}, SK = "pickScore", SD = -1, liveTimer = null, AP = "top";
 
 const $ = id => document.getElementById(id);
@@ -350,6 +352,9 @@ const TIPS = {
   "Date":"Date of projections",
   "Conf":"Confidence score (1.0-10.0). Measures data completeness: season PA, Savant stats, BvP history, streak, pitcher intel, lineup position, Vegas lines",
   "Pick":"Pick score — blended HRR × confidence. Ranks plays by projected value weighted by data reliability",
+  "Play Prob":"Likelihood player gets a plate appearance today (0-100%). Combines lineup confirmation, batting order, recent ABs, injury status. Top picks require ≥70%.",
+  "Data Conf":"Confidence in the projection's data quality (1.0-10.0). Measures depth of stats backing the model — separate from whether the player will actually play.",
+  "DNP":"Did Not Play rate — % of top picks who got zero at-bats. High values (≥15%) indicate the play_probability filter is too lenient.",
 };
 function tip(label) {
   const t = TIPS[label];
@@ -399,10 +404,13 @@ function showPlayer(name, team) {
   h += `<div class="pp-name">${p.name}${streakTag(p.streakType)}${injTag(p.injured)}</div>`;
   h += `<div class="pp-meta">${chip(p.team)} · ${p.pos} · #${p.order} · Bats ${p.bats} · ${p.isHome?"Home":"Away"}${gm?' · '+gm.time+' ET':''}</div>`;
 
-  // Core projection
+// Core projection
+  const playProb = p.playProbability != null ? p.playProbability : null;
+  const playColor = playProb == null ? 'var(--muted)' : playProb >= 0.85 ? 'var(--green)' : playProb >= 0.70 ? 'var(--amber)' : 'var(--red)';
   h += '<div class="pp-grid">';
   h += `<div class="pp-stat"><div class="l">HRR</div><div class="v" style="color:${p.tier==='A'?'var(--green)':p.tier==='B'?'var(--amber)':'var(--muted)'}">${fmt(p.hrr)}</div></div>`;
-  h += `<div class="pp-stat"><div class="l">Confidence</div><div class="v" style="color:${confColor}">${p.confidence||'—'}</div></div>`;
+  h += `<div class="pp-stat"><div class="l">Data Conf</div><div class="v" style="color:${confColor}">${p.dataConfidence||p.confidence||'—'}</div></div>`;
+  h += `<div class="pp-stat"><div class="l">Play Prob</div><div class="v" style="color:${playColor}">${playProb!=null?(playProb*100).toFixed(0)+'%':'—'}</div></div>`;
   h += `<div class="pp-stat"><div class="l">Pick Score</div><div class="v">${p.pickScore?fmt(p.pickScore):'—'}</div></div>`;
   h += `<div class="pp-stat"><div class="l">H Proj</div><div class="v" style="color:var(--green)">${fmt(bd.h)}</div></div>`;
   h += `<div class="pp-stat"><div class="l">R Proj</div><div class="v" style="color:var(--blue)">${fmt(bd.r)}</div></div>`;
@@ -559,6 +567,19 @@ async function fetchData(bust=false) {
     const r = await fetch(GIST+"?t="+Date.now());
     if (!r.ok) throw new Error("HTTP "+r.status);
     DATA = await r.json();
+    // Try to load accuracy history from separate Gist (preferred)
+    if (HISTORY_GIST) {
+      try {
+        const hr = await fetch(HISTORY_GIST + "?t=" + Date.now());
+        if (hr.ok) {
+          const hist = await hr.json();
+          // history Gist format: { entries: [...], lastUpdated }
+          // legacy format (in same gist): just an array
+          DATA.accuracyHistory = hist.entries || hist || DATA.accuracyHistory || [];
+          console.log(`Loaded ${DATA.accuracyHistory.length} history entries from history gist`);
+        }
+      } catch (e) { console.log("History gist load failed, falling back:", e.message); }
+    }
     renderAll();
     pollLive();
     startAutoRefresh();
@@ -1115,22 +1136,27 @@ function renderHistory() {
   // Accuracy trend chart
   h += renderAccuracyChart(history);
 
-  // Day-by-day cards (newest first)
+// Day-by-day cards (newest first)
   [...history].reverse().forEach(day => {
     const hr = day.top10HitRate != null ? day.top10HitRate + "%" : "—";
     const hrColor = day.top10HitRate >= 50 ? "var(--green)" : day.top10HitRate >= 30 ? "var(--amber)" : "var(--red)";
     const diffStr = day.top10AvgDiff != null ? (day.top10AvgDiff >= 0 ? "+" : "") + day.top10AvgDiff : "—";
     const diffColor = (day.top10AvgDiff||0) >= 0 ? "var(--green)" : "var(--red)";
+    // NEW: DNP rate — high values flag the play_probability problem
+    const dnpRate = day.top10DNPRate;
+    const dnpColor = dnpRate == null ? "var(--muted)" : dnpRate >= 30 ? "var(--red)" : dnpRate >= 15 ? "var(--amber)" : "var(--green)";
+    const dnpStr = dnpRate != null ? dnpRate + "%" : "—";
 
     h += `<div class="gc" style="margin-bottom:8px;cursor:pointer" onclick="toggleHistoryDay(this)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap">
         <div>
           <div style="font-size:15px;font-weight:700">${day.date}<span class="chevron" style="margin-left:6px">▼</span></div>
-          <div style="font-size:11px;color:var(--muted);margin-top:1px">${day.gamesCompleted||"?"} games · ${day.totalPlayers||"?"} players</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">${day.gamesCompleted||"?"} games · ${day.top10Played!=null?day.top10Played+"/"+day.top10Total+" played":(day.totalPlayers||"?")+" players"}</div>
         </div>
-        <div style="display:flex;gap:16px;align-items:center">
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
           <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Hit rate</div><div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${hrColor}">${hr}</div></div>
           <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Avg diff</div><div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${diffColor}">${diffStr}</div></div>
+          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase" title="% of top picks who didn't get an at-bat">DNP</div><div style="font-size:14px;font-weight:600;font-family:var(--mono);color:${dnpColor}">${dnpStr}</div></div>
           <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Tier A</div><div style="font-size:14px;font-weight:600;font-family:var(--mono);color:var(--muted)">${day.tierAHitRate!=null?day.tierAHitRate+"%":"—"}</div></div>
         </div>
       </div>
