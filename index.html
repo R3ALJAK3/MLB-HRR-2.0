@@ -1004,7 +1004,7 @@ function applyFilters() {
     {k:"hrr",l:"HRR"},{k:"pickScore",l:"Pick"},{k:"tier",l:"Tier"}
   ];
   let h = `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">${all.length} players shown</div>`;
-  h += '<div class="tw"><table style="min-width:820px"><thead><tr>';
+  h += '<div class="tw" style="overflow-x:auto"><table style="width:100%;min-width:1100px"><thead><tr>';
   cols.forEach(c=>{
     const ar=SK===c.k?(SD===-1?" ↓":" ↑"):"";
     h+=`<th data-k="${c.k}"${tip(c.l)}>${c.l}${ar}</th>`;
