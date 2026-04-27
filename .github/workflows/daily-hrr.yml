@@ -35,6 +35,7 @@ jobs:
         working-directory: scripts
         env:
           GIST_ID: ${{ secrets.GIST_ID }}
+          GIST_ID_HISTORY: ${{ secrets.GIST_ID_HISTORY }}
           GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
 
