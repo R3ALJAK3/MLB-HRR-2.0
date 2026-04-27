@@ -1,0 +1,57 @@
+name: Nightly Accuracy Calculation
+
+on:
+  schedule:
+    # 3 retry attempts in case MLB API is slow or boxscores aren't fully posted
+    # Times in UTC (ET = UTC - 4 in DST, UTC - 5 in standard)
+    # Targeting 4 AM, 5 AM, 6 AM ET — all West Coast games guaranteed final
+    - cron: "0 8 * * *"   # 4 AM ET (DST) / 3 AM ET (standard)
+    - cron: "0 9 * * *"   # 5 AM ET (DST) / 4 AM ET (standard)
+    - cron: "0 10 * * *"  # 6 AM ET (DST) / 5 AM ET (standard)
+
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Date to compute (YYYY-MM-DD). Leave blank for yesterday."
+        required: false
+        type: string
+      force_recompute:
+        description: "Force recompute even if already done"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  compute-accuracy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: scripts
+
+      - name: Compute accuracy for previous day
+        run: node compute-accuracy.js
+        working-directory: scripts
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GIST_ID_HISTORY: ${{ secrets.GIST_ID_HISTORY }}
+          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          ACCURACY_DATE: ${{ inputs.target_date }}
+          FORCE_RECOMPUTE: ${{ inputs.force_recompute && '1' || '' }}
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::warning::Accuracy calculation failed."
+          echo "::warning::If exit code was 2, no final games yet — next scheduled run will retry."
+          echo "::warning::Other failures are persistent — check logs above."
