@@ -271,7 +271,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
   <button class="tab" data-p="slate">Game Slate</button>
   <button class="tab" data-p="all">All Players</button>
   <button class="tab" data-p="stacks">Stacks</button>
-  <button class="tab" data-p="lineup">My Lineup</button>
+  <button class="tab" data-p="lineup">My Plays</button>
   <button class="tab" data-p="history">History</button>
   <button class="tab" data-p="live">Live <span class="tbadge" id="lct">—</span></button>
   <button class="tab" data-p="results">Results <span class="tbadge" id="rct">—</span></button>
@@ -580,6 +580,7 @@ async function fetchData(bust=false) {
         }
       } catch (e) { console.log("History gist load failed, falling back:", e.message); }
     }
+    await checkRollover();
     renderAll();
     pollLive();
     startAutoRefresh();
@@ -606,7 +607,7 @@ async function fetchLive() {
     $("rct").textContent = fc||"—";
     renderLive();
     if (fc>0) { renderResults(); loadTop10Results(); }
-    else if (Object.values(LIVE).some(g=>g.status?.abstractGameState==="Live")) renderTop();
+    else if (Object.values(LIVE).some(g=>g.status?.abstractGameState==="Live")) { renderTop(); loadTop10Results(); }
   } catch(e) { console.log("Live:",e.message); }
 }
 function pollLive() {
@@ -633,16 +634,23 @@ let TOP10_RESULTS = {}; // cache of actual results keyed by playerName+team
 
 async function loadTop10Results() {
   const top10 = DATA.dailyTop10 || DATA.topPlays?.slice(0,10) || [];
-  if (!top10.length) return;
-  // Find gamePks for top10 players' games
+  // Collect gamePks for both Top 10 picks AND My Plays
   const gamePkMap = {};
   top10.forEach(p => {
     const gm = DATA.games?.find(g => g.id === p.gameId);
     if (gm?.gamePk) gamePkMap[gm.gamePk] = true;
   });
-  // Check which are final in LIVE data
-  const finalPks = Object.keys(gamePkMap).filter(pk => LIVE[pk]?.status?.abstractGameState === "Final");
-  for (const pk of finalPks) {
+  (typeof MY_LINEUP !== "undefined" ? MY_LINEUP : []).forEach(p => {
+    const gm = DATA.games?.find(g => g.id === p.gameId);
+    if (gm?.gamePk) gamePkMap[gm.gamePk] = true;
+  });
+  if (!Object.keys(gamePkMap).length) return;
+  // Fetch boxscores for any Final OR Live games (live = in-progress tracking)
+  const fetchPks = Object.keys(gamePkMap).filter(pk => {
+    const st = LIVE[pk]?.status?.abstractGameState;
+    return st === "Final" || st === "Live";
+  });
+  for (const pk of fetchPks) {
     try {
       const r = await fetch(`${MLBAPI}/game/${pk}/boxscore`);
       const bs = await r.json();
@@ -650,19 +658,21 @@ async function loadTop10Results() {
         const td = bs.teams?.[side]; if (!td) continue;
         const abbr = td.team?.abbreviation;
         for (const p of Object.values(td.players||{})) {
-          const s = p.stats?.batting; if (!s || (s.atBats||0)===0) continue;
+          const s = p.stats?.batting; if (!s) continue;
           const key = (p.person?.fullName||"")+"_"+abbr;
           TOP10_RESULTS[key] = {
             h: parseInt(s.hits||0),
             r: parseInt(s.runs||0),
             rbi: parseInt(s.rbi||0),
+            ab: parseInt(s.atBats||0),
             actual: parseInt(s.hits||0)+parseInt(s.runs||0)+parseInt(s.rbi||0)
           };
         }
       }
-    } catch(e) { console.log("Top10 boxscore err:", pk, e.message); }
+    } catch(e) { console.log("Boxscore err:", pk, e.message); }
   }
   renderTop();
+  if (typeof renderLineup === "function") renderLineup();
 }
 
 function renderTop() {
@@ -1522,16 +1532,92 @@ function showErr(msg){
 }
 
 // ══════════════════════════════════════════════════════
-// ── 1. MY LINEUP BUILDER ─────────────────────────────
+// ── 1. MY PLAYS TRACKER ──────────────────────────────
+// (internal storage key: hrr_lineup, kept for back-compat)
 // ══════════════════════════════════════════════════════
 let MY_LINEUP = JSON.parse(localStorage.getItem("hrr_lineup")||"[]");
+let MY_PLAYS_HISTORY = JSON.parse(localStorage.getItem("hrr_plays_history")||"[]");
+
+// Logical day = ET date with 4 AM rollover (anything before 4 AM = previous day)
+function logicalToday() {
+  const et = nowET();
+  if (et.getHours() < 4) et.setDate(et.getDate() - 1);
+  return et.toLocaleDateString("en-CA");
+}
+
+async function checkRollover() {
+  const today = logicalToday();
+  const lastDay = localStorage.getItem("hrr_plays_day");
+  if (lastDay && lastDay !== today && MY_LINEUP.length > 0) {
+    await archivePlays(lastDay);
+  }
+  localStorage.setItem("hrr_plays_day", today);
+}
+
+async function archivePlays(date) {
+  // Resolve gamePks (use snapshot, fall back to gameId lookup)
+  const gamePks = new Set();
+  MY_LINEUP.forEach(p => {
+    let pk = p.gamePk;
+    if (!pk && p.gameId && DATA?.games) {
+      const gm = DATA.games.find(g => g.id === p.gameId);
+      pk = gm?.gamePk;
+    }
+    if (pk) gamePks.add(pk);
+  });
+  // Fetch final boxscores
+  const results = {};
+  for (const pk of gamePks) {
+    try {
+      const r = await fetch(`${MLBAPI}/game/${pk}/boxscore`);
+      const bs = await r.json();
+      for (const side of ["away","home"]) {
+        const td = bs.teams?.[side]; if (!td) continue;
+        const abbr = td.team?.abbreviation;
+        for (const pl of Object.values(td.players||{})) {
+          const s = pl.stats?.batting; if (!s) continue;
+          const key = (pl.person?.fullName||"")+"_"+abbr;
+          results[key] = {
+            h: parseInt(s.hits||0),
+            r: parseInt(s.runs||0),
+            rbi: parseInt(s.rbi||0),
+            ab: parseInt(s.atBats||0),
+            actual: parseInt(s.hits||0)+parseInt(s.runs||0)+parseInt(s.rbi||0)
+          };
+        }
+      }
+    } catch(e) { console.log("Archive bs err:", pk, e.message); }
+  }
+  // Enrich plays with results + compute summary
+  const enriched = MY_LINEUP.map(p => {
+    const key = p.name + "_" + p.team;
+    const res = results[key];
+    return { ...p, actual: res?.actual ?? null, ab: res?.ab ?? 0 };
+  });
+  const played = enriched.filter(p => p.ab > 0);
+  const hits = played.filter(p => p.actual >= Math.round(p.hrr));
+  const hitRate = played.length > 0 ? Math.round(hits.length / played.length * 1000) / 10 : null;
+  const avgDiff = played.length > 0 ? Math.round(played.reduce((s,p) => s + (p.actual - p.hrr), 0) / played.length * 100) / 100 : null;
+  const dnpRate = enriched.length > 0 ? Math.round((enriched.length - played.length) / enriched.length * 1000) / 10 : null;
+
+  MY_PLAYS_HISTORY.push({ date, plays: enriched, played: played.length, total: enriched.length, hitRate, avgDiff, dnpRate });
+  if (MY_PLAYS_HISTORY.length > 60) MY_PLAYS_HISTORY = MY_PLAYS_HISTORY.slice(-60);
+  localStorage.setItem("hrr_plays_history", JSON.stringify(MY_PLAYS_HISTORY));
+  MY_LINEUP = [];
+  localStorage.setItem("hrr_lineup", "[]");
+  console.log(`Archived ${enriched.length} plays for ${date} (hit rate: ${hitRate}%, DNP: ${dnpRate}%)`);
+}
 
 function addToLineup(name, team) {
-  if (MY_LINEUP.length >= 8) return;
   if (MY_LINEUP.some(p => p.name===name && p.team===team)) return;
   const p = (DATA?.allPlayers||[]).find(x=>x.name===name&&x.team===team);
   if (!p) return;
-  MY_LINEUP.push({name:p.name,team:p.team,hrr:p.hrr,pickScore:p.pickScore,confidence:p.confidence,tier:p.tier,pos:p.pos,order:p.order,gameId:p.gameId,gamePk:p.gamePk});
+  const gm = DATA?.games?.find(g => g.id === p.gameId);
+  MY_LINEUP.push({
+    name:p.name, team:p.team, hrr:p.hrr, pickScore:p.pickScore,
+    confidence:p.confidence, tier:p.tier, pos:p.pos, order:p.order,
+    gameId:p.gameId, gamePk:gm?.gamePk, addedAt:Date.now()
+  });
   localStorage.setItem("hrr_lineup",JSON.stringify(MY_LINEUP));
   renderLineup();
 }
@@ -1543,8 +1629,16 @@ function removeFromLineup(name, team) {
 }
 
 function clearLineup() {
+  if (MY_LINEUP.length > 0 && !confirm("Clear all "+MY_LINEUP.length+" plays for today? This cannot be undone.")) return;
   MY_LINEUP = [];
   localStorage.setItem("hrr_lineup","[]");
+  renderLineup();
+}
+
+function clearPlaysHistory() {
+  if (!confirm("Clear all play history? This cannot be undone.")) return;
+  MY_PLAYS_HISTORY = [];
+  localStorage.setItem("hrr_plays_history","[]");
   renderLineup();
 }
 
@@ -1552,26 +1646,46 @@ function renderLineup() {
   if (!DATA) return;
   const el = $("p-lineup");
   if (!el) return;
-  let h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div class="section-title" style="margin:0">My Lineup</div><div>';
+
+  let h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div class="section-title" style="margin:0">My Plays <span style="font-size:11px;color:var(--dim);font-weight:400">· '+logicalToday()+'</span></div><div>';
   h += `<div style="position:relative;display:inline-block"><button class="btn" onclick="document.getElementById('export-dd').style.display=document.getElementById('export-dd').style.display==='block'?'none':'block'" style="margin-right:4px">Export ▾</button><div id="export-dd" style="display:none;position:absolute;top:100%;left:0;z-index:20;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;min-width:160px;padding:4px 0;margin-top:4px"><div class="exp-opt" onclick="exportBook('dk')">DraftKings</div><div class="exp-opt" onclick="exportBook('fd')">FanDuel</div><div class="exp-opt" onclick="exportBook('mgm')">BetMGM</div><div class="exp-opt" onclick="exportBook('fan')">Fanatics Sportsbook</div><div class="exp-opt" onclick="exportBook('b365')">Bet365</div><div class="exp-opt" onclick="exportBook('generic')">Generic CSV</div></div></div>`;
   h += `<button class="btn" onclick="clearLineup()" style="color:var(--red)">Clear</button></div></div>`;
 
   if (!MY_LINEUP.length) {
-    h += '<div class="lu-empty"><div style="font-size:24px;margin-bottom:8px">⚾</div><div>Click <span class="add-btn" style="pointer-events:none">+ Add</span> on any player to build your lineup</div><div style="font-size:11px;color:var(--dim);margin-top:6px">Supports up to 8 players</div></div>';
-    el.innerHTML = h; return;
+    h += '<div class="lu-empty"><div style="font-size:24px;margin-bottom:8px">⚾</div><div>Click <span class="add-btn" style="pointer-events:none">+ Add</span> on any player to track your plays</div><div style="font-size:11px;color:var(--dim);margin-top:6px">Resets nightly at 4 AM ET · No limit</div></div>';
+    h += renderPlaysHistory();
+    el.innerHTML = h;
+    return;
   }
+
+  // Enrich each play with live result data
+  const enriched = MY_LINEUP.map(p => {
+    const key = p.name + "_" + p.team;
+    const res = TOP10_RESULTS[key];
+    const gm = DATA?.games?.find(g => g.id === p.gameId);
+    const gameStatus = gm?.gamePk ? LIVE[gm.gamePk]?.status?.abstractGameState : null;
+    return { ...p, result: res || null, gameStatus };
+  });
+
+  // Live summary stats
+  const finalPlays = enriched.filter(p => p.gameStatus === "Final");
+  const finalPlayed = finalPlays.filter(p => (p.result?.ab || 0) > 0);
+  const hits = finalPlayed.filter(p => p.result.actual >= Math.round(p.hrr));
+  const liveHitRate = finalPlayed.length > 0 ? Math.round(hits.length / finalPlayed.length * 1000) / 10 : null;
+  const totalHRR = MY_LINEUP.reduce((s,p)=>s+p.hrr,0);
+  const totalActual = enriched.reduce((s,p) => s + (p.result?.actual || 0), 0);
+  const avgConf = MY_LINEUP.reduce((s,p)=>s+(p.confidence||0),0)/MY_LINEUP.length;
 
   // Correlation check
   const gameGroups = {};
   MY_LINEUP.forEach(p => { const k=p.gameId||"?"; gameGroups[k]=(gameGroups[k]||0)+1; });
   const correlated = Object.entries(gameGroups).filter(([,c])=>c>=3);
 
-  const totalHRR = MY_LINEUP.reduce((s,p)=>s+p.hrr,0);
-  const avgConf = MY_LINEUP.reduce((s,p)=>s+(p.confidence||0),0)/MY_LINEUP.length;
-
-  h += `<div class="sg" style="grid-template-columns:repeat(3,1fr)">
-    <div class="sc"><div class="l">Players</div><div class="v">${MY_LINEUP.length}/8</div></div>
-    <div class="sc"><div class="l">Total HRR</div><div class="v" style="color:var(--green)">${totalHRR.toFixed(2)}</div></div>
+  h += `<div class="sg" style="grid-template-columns:repeat(auto-fit,minmax(85px,1fr))">
+    <div class="sc"><div class="l">Plays</div><div class="v">${MY_LINEUP.length}</div></div>
+    <div class="sc"><div class="l">Proj HRR</div><div class="v" style="color:var(--green)">${totalHRR.toFixed(2)}</div></div>
+    <div class="sc"><div class="l">Actual</div><div class="v" style="color:${totalActual>=totalHRR?'var(--green)':'var(--amber)'}">${totalActual}</div></div>
+    <div class="sc"><div class="l">Hit Rate</div><div class="v" style="color:${liveHitRate==null?'var(--muted)':liveHitRate>=50?'var(--green)':'var(--amber)'}">${liveHitRate==null?"—":liveHitRate+"%"}</div><div style="font-size:10px;color:var(--dim)">${finalPlayed.length}/${MY_LINEUP.length} done</div></div>
     <div class="sc"><div class="l">Avg Conf</div><div class="v" style="color:${avgConf>=9?'var(--green)':avgConf>=7?'var(--amber)':'var(--red)'}">${avgConf.toFixed(1)}</div></div>
   </div>`;
 
@@ -1583,18 +1697,128 @@ function renderLineup() {
     });
   }
 
-  MY_LINEUP.forEach((p,i) => {
+  enriched.forEach((p,i) => {
     const tc = p.tier==="A"?"var(--green)":p.tier==="B"?"var(--amber)":"var(--muted)";
-    h += `<div class="lu-card" style="animation-delay:${i*.03}s">
-      <div><span style="color:${tc};font-weight:700" class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)">${p.name}</span> <span class="chip">${p.team}</span> <span style="font-size:10px;color:var(--dim)">${p.pos} #${p.order}</span></div>
+    let resultBlock = "";
+    let cardBg = "";
+    if (p.gameStatus === "Final") {
+      if ((p.result?.ab || 0) > 0) {
+        const hit = p.result.actual >= Math.round(p.hrr);
+        const diff = p.result.actual - p.hrr;
+        const diffStr = (diff >= 0 ? "+" : "") + diff.toFixed(2);
+        resultBlock = `<span style="font-size:11px;font-weight:700;color:${hit?'var(--green)':'var(--red)'};font-family:var(--mono);margin-left:6px">${hit?'✓':'✗'} ${p.result.actual} (${diffStr})</span>`;
+        cardBg = hit ? "background:rgba(34,197,94,.05);" : "background:rgba(248,113,113,.05);";
+      } else {
+        resultBlock = `<span style="font-size:10px;font-weight:700;color:var(--amber);font-family:var(--mono);margin-left:6px">DNP</span>`;
+        cardBg = "background:rgba(245,158,11,.05);";
+      }
+    } else if (p.gameStatus === "Live") {
+      if (p.result) {
+        resultBlock = `<span style="font-size:11px;font-weight:700;color:var(--green);font-family:var(--mono);margin-left:6px">● ${p.result.actual} HRR</span>`;
+      } else {
+        resultBlock = `<span style="font-size:10px;color:var(--green);font-weight:700;margin-left:6px">● LIVE</span>`;
+      }
+    }
+    h += `<div class="lu-card" style="${cardBg}animation-delay:${i*.03}s">
+      <div><span style="color:${tc};font-weight:700" class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)">${p.name}</span> <span class="chip">${p.team}</span> <span style="font-size:10px;color:var(--dim)">${p.pos} #${p.order}</span>${resultBlock}</div>
       <div style="display:flex;align-items:center;gap:8px"><span style="font-weight:700;font-family:var(--mono)">${fmt(p.hrr)}</span>${confBar(p.confidence)}<button class="lu-rm" onclick="removeFromLineup(\`${p.name}\`,\`${p.team}\`)" title="Remove">✕</button></div>
     </div>`;
   });
 
+  h += renderPlaysHistory();
   el.innerHTML = h;
 }
 
-// ── Add button helper for tables ──
+function renderPlaysHistory() {
+  if (!MY_PLAYS_HISTORY.length) return '';
+  const valid = MY_PLAYS_HISTORY.filter(d => d.hitRate != null);
+  let h = '<div style="margin-top:1.5rem"><div class="section-title" style="display:flex;align-items:center;justify-content:space-between">My Plays History <button class="btn btn-sm" onclick="clearPlaysHistory()" style="color:var(--red);font-size:10px">Clear All</button></div>';
+  if (valid.length >= 1) {
+    const avgHitRate = Math.round(valid.reduce((s,d) => s + d.hitRate, 0) / valid.length * 10) / 10;
+    const avgDiff = Math.round(valid.reduce((s,d) => s + (d.avgDiff||0), 0) / valid.length * 100) / 100;
+    const totalPlays = MY_PLAYS_HISTORY.reduce((s,d) => s + d.total, 0);
+    h += `<div class="sg" style="margin-bottom:.5rem">
+      <div class="sc"><div class="l">Days</div><div class="v">${MY_PLAYS_HISTORY.length}</div></div>
+      <div class="sc"><div class="l">Total Plays</div><div class="v">${totalPlays}</div></div>
+      <div class="sc"><div class="l">Avg Hit Rate</div><div class="v" style="color:${avgHitRate>=50?'var(--green)':'var(--amber)'}">${avgHitRate}%</div></div>
+      <div class="sc"><div class="l">Avg Diff</div><div class="v" style="color:${avgDiff>=0?'var(--green)':'var(--red)'}">${avgDiff>=0?"+":""}${avgDiff}</div></div>
+    </div>`;
+  }
+  [...MY_PLAYS_HISTORY].reverse().forEach(day => {
+    const hr = day.hitRate != null ? day.hitRate + "%" : "—";
+    const hrColor = day.hitRate >= 50 ? "var(--green)" : day.hitRate >= 30 ? "var(--amber)" : "var(--red)";
+    const diffStr = day.avgDiff != null ? (day.avgDiff >= 0 ? "+" : "") + day.avgDiff : "—";
+    const diffColor = (day.avgDiff||0) >= 0 ? "var(--green)" : "var(--red)";
+    const dnpStr = day.dnpRate != null ? day.dnpRate + "%" : "—";
+    const dnpColor = day.dnpRate == null ? "var(--muted)" : day.dnpRate >= 30 ? "var(--red)" : day.dnpRate >= 15 ? "var(--amber)" : "var(--green)";
+    h += `<div class="gc" style="margin-bottom:8px;cursor:pointer" onclick="togglePlaysHistoryDay(this)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap">
+        <div>
+          <div style="font-size:15px;font-weight:700">${day.date}<span class="chevron" style="margin-left:6px">▼</span></div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">${day.played}/${day.total} played</div>
+        </div>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Hit rate</div><div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${hrColor}">${hr}</div></div>
+          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Avg diff</div><div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${diffColor}">${diffStr}</div></div>
+          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">DNP</div><div style="font-size:14px;font-weight:600;font-family:var(--mono);color:${dnpColor}">${dnpStr}</div></div>
+        </div>
+      </div>
+      <div class="plays-detail" style="display:none"></div>
+    </div>`;
+  });
+  h += '</div>';
+  return h;
+}
+
+function togglePlaysHistoryDay(card) {
+  const detail = card.querySelector(".plays-detail");
+  const chev = card.querySelector(".chevron");
+  if (!detail) return;
+  if (detail.style.display !== "none") {
+    detail.style.display = "none";
+    if (chev) chev.textContent = "▼";
+    return;
+  }
+  if (chev) chev.textContent = "▲";
+  if (detail.innerHTML) { detail.style.display = "block"; return; }
+  const dateStr = card.querySelector("div[style*='font-size:15px']")?.textContent?.replace("▼","").replace("▲","").trim();
+  const day = MY_PLAYS_HISTORY.find(d => d.date === dateStr);
+  if (!day || !day.plays?.length) {
+    detail.innerHTML = '<div style="padding:8px;color:var(--dim);font-size:12px;border-top:1px solid var(--border);margin-top:8px">No data.</div>';
+    detail.style.display = "block"; return;
+  }
+  let t = '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px"><table><thead><tr><th style="cursor:default">Player</th><th style="cursor:default">Team</th><th style="cursor:default">Pos</th><th style="cursor:default">Conf</th><th style="cursor:default">Proj</th><th style="cursor:default">AB</th><th style="cursor:default">Actual</th><th style="cursor:default">Result</th></tr></thead><tbody>';
+  day.plays.forEach(p => {
+    const played = (p.ab||0) > 0;
+    const hit = played ? p.actual >= Math.round(p.hrr) : null;
+    let resultCell = "—"; let rowBg = "";
+    if (!played) {
+      resultCell = '<span style="color:var(--amber);font-weight:700;font-size:10px">DNP</span>';
+      rowBg = "background:rgba(245,158,11,.05);";
+    } else if (hit) {
+      resultCell = `<span style="color:var(--green);font-weight:700">✓</span>`;
+      rowBg = "background:rgba(34,197,94,.05);";
+    } else {
+      resultCell = `<span style="color:var(--red);font-weight:700">✗</span>`;
+      rowBg = "background:rgba(248,113,113,.05);";
+    }
+    t += `<tr style="${rowBg}">
+      <td style="font-weight:500">${p.name}</td>
+      <td>${chip(p.team)}</td>
+      <td style="color:var(--muted);font-size:12px">${p.pos||"—"}</td>
+      <td>${confBar(p.confidence)}</td>
+      <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
+      <td class="n" style="text-align:center">${p.ab||0}</td>
+      <td class="n" style="font-weight:700">${p.actual!=null?p.actual:"—"}</td>
+      <td>${resultCell}</td>
+    </tr>`;
+  });
+  t += '</tbody></table></div>';
+  detail.innerHTML = t;
+  detail.style.display = "block";
+}
+
+// Add button helper for tables (used by Top Plays + All Players)
 function addBtn(p) {
   const inLineup = MY_LINEUP.some(l=>l.name===p.name&&l.team===p.team);
   if (inLineup) return '<span style="font-size:9px;color:var(--green);font-weight:700">✓ IN</span>';
