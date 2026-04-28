@@ -27,6 +27,8 @@ import {
   computeDataConfidence,
   computePlayProbability,
   computePickScore,
+  passesQualityGate,
+  activeFilters,
 } from "./lib/confidence.js";
 
 const TODAY_DISPLAY = new Date().toLocaleDateString("en-US", {
@@ -1113,16 +1115,43 @@ async function main() {
     }
   }
 
-  // ── Top 10 with split confidence floor ──
+ // ── Top 10 with split confidence floor + Lever 2 quality gate ──
   const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const qualified = enriched.allPlayers.filter(p =>
-    (p.dataConfidence || 0) >= CONF_CONFIG.CONF_DATA_FLOOR &&
-    (p.playProbability || 0) >= CONF_CONFIG.CONF_PLAY_FLOOR
-  );
+
+  // Helper: resolve opposing pitcher for a player (used by passesQualityGate)
+  const oppPitcherOf = (p) => {
+    const gm = enriched.games.find(g => g.id === p.gameId);
+    if (!gm) return null;
+    return p.team === gm.home.abbr ? gm.away.pitcher : gm.home.pitcher;
+  };
+
+  // Track filter rejections for visibility
+  const rejectionCounts = {};
+  const qualified = enriched.allPlayers.filter(p => {
+    if ((p.dataConfidence || 0) < CONF_CONFIG.CONF_DATA_FLOOR) {
+      rejectionCounts.dataFloor = (rejectionCounts.dataFloor || 0) + 1;
+      return false;
+    }
+    if ((p.playProbability || 0) < CONF_CONFIG.CONF_PLAY_FLOOR) {
+      rejectionCounts.playFloor = (rejectionCounts.playFloor || 0) + 1;
+      return false;
+    }
+    const gate = passesQualityGate(p, oppPitcherOf);
+    if (!gate.pass) {
+      rejectionCounts[gate.reason] = (rejectionCounts[gate.reason] || 0) + 1;
+      return false;
+    }
+    return true;
+  });
+
   const freshTop10 = qualified.slice(0, 10);
   const freshMap   = Object.fromEntries(freshTop10.map(p => [p.name + "_" + p.team, p]));
 
-  console.log(`  Qualified picks: ${qualified.length} (data ≥ ${CONF_CONFIG.CONF_DATA_FLOOR}, play ≥ ${CONF_CONFIG.CONF_PLAY_FLOOR})`);
+  console.log(`  Active filters: ${activeFilters()}`);
+  console.log(`  Qualified picks: ${qualified.length}/${enriched.allPlayers.length}`);
+  if (Object.keys(rejectionCounts).length) {
+    console.log(`  Rejected: ${Object.entries(rejectionCounts).map(([k,v]) => `${k}=${v}`).join(", ")}`);
+  }
 
   const existingReal = (existing?.dailyTop10 || []).filter(p => p.name && p.name !== "Lineup TBD" && !p.isTBD);
 
