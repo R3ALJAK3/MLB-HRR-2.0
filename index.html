@@ -1127,47 +1127,67 @@ function renderHistory() {
   // Overall summary
   const validDays = history.filter(d => d.top10HitRate != null);
   let h = '';
-  if (validDays.length >= 1) {
-    const avgHitRate = Math.round(validDays.reduce((s,d) => s + d.top10HitRate, 0) / validDays.length * 10) / 10;
+if (validDays.length >= 1) {
+    // Average each threshold across all valid days
+    const avgRate = (t) => {
+      const withT = validDays.filter(d => d.top10ThresholdRates && d.top10ThresholdRates[t] != null);
+      if (!withT.length) return null;
+      return Math.round(withT.reduce((s,d) => s + d.top10ThresholdRates[t], 0) / withT.length * 10) / 10;
+    };
+    const avg1 = avgRate(1), avg2 = avgRate(2), avg3 = avgRate(3), avg4 = avgRate(4);
     const avgDiff = Math.round(validDays.reduce((s,d) => s + (d.top10AvgDiff||0), 0) / validDays.length * 100) / 100;
-    const bestDay = validDays.reduce((best,d) => d.top10HitRate > best.top10HitRate ? d : best);
-    const worstDay = validDays.reduce((worst,d) => d.top10HitRate < worst.top10HitRate ? d : worst);
-    const totalPicks = validDays.length * 10;
-    const totalHits = validDays.reduce((s,d) => s + Math.round(d.top10HitRate / 10), 0);
+    const colorFor = (rate, target) => rate == null ? 'var(--muted)' : rate >= target ? 'var(--green)' : rate >= target * 0.7 ? 'var(--amber)' : 'var(--red)';
+
     h += `<div class="sg">
       <div class="sc"><div class="l">Days tracked</div><div class="v">${validDays.length}</div></div>
-      <div class="sc"><div class="l">Avg hit rate</div><div class="v" style="color:${avgHitRate>=50?'var(--green)':'var(--amber)'}">${avgHitRate}%</div></div>
       <div class="sc"><div class="l">Avg diff</div><div class="v" style="color:${avgDiff>=0?'var(--green)':'var(--red)'}">${avgDiff>=0?"+":""}${avgDiff}</div></div>
-      <div class="sc"><div class="l">Best day</div><div class="v" style="color:var(--green)">${bestDay.top10HitRate}%<div style="font-size:10px;color:var(--dim);font-weight:400">${bestDay.date}</div></div></div>
-      <div class="sc"><div class="l">Worst day</div><div class="v" style="color:var(--red)">${worstDay.top10HitRate}%<div style="font-size:10px;color:var(--dim);font-weight:400">${worstDay.date}</div></div></div>
+    </div>`;
+    h += `<div style="font-size:11px;color:var(--muted);margin:8px 0 6px;text-transform:uppercase;letter-spacing:.4px">Threshold ladder · top 10 picks</div>`;
+    h += `<div class="sg" style="grid-template-columns:repeat(4,1fr);margin-bottom:1rem">
+      <div class="sc"><div class="l" data-tip="% of played top picks who got at least 1 H+R+RBI. Floor metric — most starters clear this.">HRR ≥ 1</div><div class="v" style="color:${colorFor(avg1,80)}">${avg1!=null?avg1+"%":"—"}</div></div>
+      <div class="sc" style="border-color:var(--green)"><div class="l" data-tip="HEADLINE METRIC: % who hit a productive game (2+ H/R/RBI). Target 65%+">HRR ≥ 2 ★</div><div class="v" style="font-size:22px;color:${colorFor(avg2,65)}">${avg2!=null?avg2+"%":"—"}</div></div>
+      <div class="sc"><div class="l" data-tip="% who hit a strong game (3+). Hard bar — 30-40% is realistic">HRR ≥ 3</div><div class="v" style="color:${colorFor(avg3,35)}">${avg3!=null?avg3+"%":"—"}</div></div>
+      <div class="sc"><div class="l" data-tip="% who hit an elite game (4+). Rare — 12-18% expected">HRR ≥ 4</div><div class="v" style="color:${colorFor(avg4,15)}">${avg4!=null?avg4+"%":"—"}</div></div>
     </div>`;
   }
 
   // Accuracy trend chart
   h += renderAccuracyChart(history);
 
-// Day-by-day cards (newest first)
+// Day-by-day cards (newest first) — show threshold ladder per day
   [...history].reverse().forEach(day => {
-    const hr = day.top10HitRate != null ? day.top10HitRate + "%" : "—";
-    const hrColor = day.top10HitRate >= 50 ? "var(--green)" : day.top10HitRate >= 30 ? "var(--amber)" : "var(--red)";
+    const t = day.top10ThresholdRates || {};
+    const r2 = t[2]; // headline
+    const r2Color = r2 == null ? "var(--muted)" : r2 >= 65 ? "var(--green)" : r2 >= 45 ? "var(--amber)" : "var(--red)";
+    const r2Str = r2 != null ? r2 + "%" : "—";
     const diffStr = day.top10AvgDiff != null ? (day.top10AvgDiff >= 0 ? "+" : "") + day.top10AvgDiff : "—";
     const diffColor = (day.top10AvgDiff||0) >= 0 ? "var(--green)" : "var(--red)";
-    // NEW: DNP rate — high values flag the play_probability problem
     const dnpRate = day.top10DNPRate;
     const dnpColor = dnpRate == null ? "var(--muted)" : dnpRate >= 30 ? "var(--red)" : dnpRate >= 15 ? "var(--amber)" : "var(--green)";
     const dnpStr = dnpRate != null ? dnpRate + "%" : "—";
+
+    // Mini ladder strip ≥1 / ≥2 / ≥3 / ≥4
+    const ladderColor = (rate, target) => rate == null ? "var(--muted)" : rate >= target ? "var(--green)" : rate >= target * 0.7 ? "var(--amber)" : "var(--red)";
+    const miniLadder = `
+      <div style="display:flex;gap:6px;font-family:var(--mono);font-size:10px">
+        <span title="HRR≥1" style="color:${ladderColor(t[1],80)}">${t[1]!=null?t[1]+"%":"—"}</span>
+        <span style="color:var(--dim)">·</span>
+        <span title="HRR≥3" style="color:${ladderColor(t[3],35)}">${t[3]!=null?t[3]+"%":"—"}</span>
+        <span style="color:var(--dim)">·</span>
+        <span title="HRR≥4" style="color:${ladderColor(t[4],15)}">${t[4]!=null?t[4]+"%":"—"}</span>
+      </div>`;
 
     h += `<div class="gc" style="margin-bottom:8px;cursor:pointer" onclick="toggleHistoryDay(this)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap">
         <div>
           <div style="font-size:15px;font-weight:700">${day.date}<span class="chevron" style="margin-left:6px">▼</span></div>
           <div style="font-size:11px;color:var(--muted);margin-top:1px">${day.gamesCompleted||"?"} games · ${day.top10Played!=null?day.top10Played+"/"+day.top10Total+" played":(day.totalPlayers||"?")+" players"}</div>
+          <div style="margin-top:4px">${miniLadder}</div>
         </div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Hit rate</div><div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${hrColor}">${hr}</div></div>
-          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Avg diff</div><div style="font-size:16px;font-weight:700;font-family:var(--mono);color:${diffColor}">${diffStr}</div></div>
-          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase" title="% of top picks who didn't get an at-bat">DNP</div><div style="font-size:14px;font-weight:600;font-family:var(--mono);color:${dnpColor}">${dnpStr}</div></div>
-          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Tier A</div><div style="font-size:14px;font-weight:600;font-family:var(--mono);color:var(--muted)">${day.tierAHitRate!=null?day.tierAHitRate+"%":"—"}</div></div>
+          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase" data-tip="% of top picks who hit 2+ H/R/RBI. Headline metric.">HRR ≥ 2 ★</div><div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${r2Color}">${r2Str}</div></div>
+          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Avg diff</div><div style="font-size:14px;font-weight:600;font-family:var(--mono);color:${diffColor}">${diffStr}</div></div>
+          <div style="text-align:center"><div style="font-size:9px;color:var(--dim);text-transform:uppercase">DNP</div><div style="font-size:14px;font-weight:600;font-family:var(--mono);color:${dnpColor}">${dnpStr}</div></div>
         </div>
       </div>
       <div class="hist-detail" style="display:none"></div>
@@ -1208,28 +1228,36 @@ function toggleHistoryDay(card) {
   }
 
   let t = '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">';
-  t += '<table><thead><tr><th style="cursor:default">#</th><th style="cursor:default">Player</th><th style="cursor:default">Team</th><th style="cursor:default">Pos</th><th style="cursor:default">Ord</th><th style="cursor:default">Conf</th><th style="cursor:default">Proj HRR</th><th style="cursor:default">Tier</th><th style="cursor:default">Actual</th><th style="cursor:default">Result</th></tr></thead><tbody>';
+  t += '<table><thead><tr><th style="cursor:default">#</th><th style="cursor:default">Player</th><th style="cursor:default">Team</th><th style="cursor:default">Pos</th><th style="cursor:default">Proj</th><th style="cursor:default">Actual</th><th style="cursor:default;text-align:center" data-tip="Hit at threshold? ≥1 / ≥2 / ≥3 / ≥4">Ladder</th><th style="cursor:default">Tier</th></tr></thead><tbody>';
   day.top10.forEach((p, i) => {
     const actual = p.actual;
-    const hit = actual != null ? actual >= Math.round(p.hrr) : null;
-    const resultCell = actual != null
-      ? (hit ? `<span style="color:var(--green);font-weight:700">✓ ${actual}</span>` : `<span style="color:var(--red);font-weight:700">✗ ${actual}</span>`)
-      : "—";
-    const rowBg = hit === true ? "background:rgba(34,197,94,.07);" : hit === false ? "background:rgba(248,113,113,.07);" : "";
+    const tHits = p.thresholdHits || {};
+    const dot = (hit) => hit === true ? '<span style="color:var(--green)">●</span>' : hit === false ? '<span style="color:var(--red)">○</span>' : '<span style="color:var(--dim)">—</span>';
+    // For legacy v7 entries lacking thresholdHits, derive from actual
+    const h1 = tHits[1] !== undefined ? tHits[1] : (actual != null ? actual >= 1 : null);
+    const h2 = tHits[2] !== undefined ? tHits[2] : (actual != null ? actual >= 2 : null);
+    const h3 = tHits[3] !== undefined ? tHits[3] : (actual != null ? actual >= 3 : null);
+    const h4 = tHits[4] !== undefined ? tHits[4] : (actual != null ? actual >= 4 : null);
+    const dnp = p.played === false;
+    const rowBg = dnp ? "background:rgba(245,158,11,.05);" : h2 === true ? "background:rgba(34,197,94,.07);" : h2 === false ? "background:rgba(248,113,113,.05);" : "";
+    const actualCell = dnp
+      ? '<span style="color:var(--amber);font-weight:700;font-size:10px">DNP</span>'
+      : actual != null
+        ? `<span style="font-weight:700;color:${actual>=3?'var(--green)':actual>=2?'var(--amber)':'var(--muted)'}">${actual}</span>`
+        : "—";
     t += `<tr style="${rowBg}">
       <td class="n" style="color:var(--dim)">${i+1}</td>
       <td style="font-weight:500">${p.name}</td>
       <td>${chip(p.team)}</td>
       <td style="color:var(--muted);font-size:12px">${p.pos||"—"}</td>
-      <td class="n" style="text-align:center">${p.order||"—"}</td>
-      <td>${confBar(p.confidence)}</td>
       <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
+      <td class="n">${actualCell}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:13px;letter-spacing:3px">${dot(h1)}${dot(h2)}${dot(h3)}${dot(h4)}</td>
       <td>${tierB(p.tier)}</td>
-      <td class="n" style="font-weight:700;color:${actual!=null&&actual>=3?'var(--green)':actual!=null&&actual>=2?'var(--amber)':'var(--muted)'}">${actual!=null?actual:"—"}</td>
-      <td>${resultCell}</td>
     </tr>`;
   });
-  t += '</tbody></table></div>';
+  t += '</tbody></table>';
+  t += '<div style="font-size:10px;color:var(--dim);margin-top:6px">Ladder dots: ≥1  ≥2  ≥3  ≥4  ·  <span style="color:var(--green)">●</span> hit  <span style="color:var(--red)">○</span> miss</div></div>';
   detail.innerHTML = t;
   detail.style.display = "block";
 }
