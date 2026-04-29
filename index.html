@@ -1128,26 +1128,16 @@ function renderHistory() {
   const validDays = history.filter(d => d.top10HitRate != null);
   let h = '';
 if (validDays.length >= 1) {
-    // Average each threshold across all valid days
-    const avgRate = (t) => {
-      const withT = validDays.filter(d => d.top10ThresholdRates && d.top10ThresholdRates[t] != null);
-      if (!withT.length) return null;
-      return Math.round(withT.reduce((s,d) => s + d.top10ThresholdRates[t], 0) / withT.length * 10) / 10;
-    };
-    const avg1 = avgRate(1), avg2 = avgRate(2), avg3 = avgRate(3), avg4 = avgRate(4);
+    const avgHitRate = Math.round(validDays.reduce((s,d) => s + d.top10HitRate, 0) / validDays.length * 10) / 10;
     const avgDiff = Math.round(validDays.reduce((s,d) => s + (d.top10AvgDiff||0), 0) / validDays.length * 100) / 100;
-    const colorFor = (rate, target) => rate == null ? 'var(--muted)' : rate >= target ? 'var(--green)' : rate >= target * 0.7 ? 'var(--amber)' : 'var(--red)';
-
+    const bestDay = validDays.reduce((best,d) => d.top10HitRate > best.top10HitRate ? d : best);
+    const worstDay = validDays.reduce((worst,d) => d.top10HitRate < worst.top10HitRate ? d : worst);
     h += `<div class="sg">
       <div class="sc"><div class="l">Days tracked</div><div class="v">${validDays.length}</div></div>
+      <div class="sc"><div class="l">Avg hit rate</div><div class="v" style="color:${avgHitRate>=50?'var(--green)':'var(--amber)'}">${avgHitRate}%</div></div>
       <div class="sc"><div class="l">Avg diff</div><div class="v" style="color:${avgDiff>=0?'var(--green)':'var(--red)'}">${avgDiff>=0?"+":""}${avgDiff}</div></div>
-    </div>`;
-    h += `<div style="font-size:11px;color:var(--muted);margin:8px 0 6px;text-transform:uppercase;letter-spacing:.4px">Threshold ladder · top 10 picks</div>`;
-    h += `<div class="sg" style="grid-template-columns:repeat(4,1fr);margin-bottom:1rem">
-      <div class="sc"><div class="l" data-tip="% of played top picks who got at least 1 H+R+RBI. Floor metric — most starters clear this.">HRR ≥ 1</div><div class="v" style="color:${colorFor(avg1,80)}">${avg1!=null?avg1+"%":"—"}</div></div>
-      <div class="sc" style="border-color:var(--green)"><div class="l" data-tip="HEADLINE METRIC: % who hit a productive game (2+ H/R/RBI). Target 65%+">HRR ≥ 2 ★</div><div class="v" style="font-size:22px;color:${colorFor(avg2,65)}">${avg2!=null?avg2+"%":"—"}</div></div>
-      <div class="sc"><div class="l" data-tip="% who hit a strong game (3+). Hard bar — 30-40% is realistic">HRR ≥ 3</div><div class="v" style="color:${colorFor(avg3,35)}">${avg3!=null?avg3+"%":"—"}</div></div>
-      <div class="sc"><div class="l" data-tip="% who hit an elite game (4+). Rare — 12-18% expected">HRR ≥ 4</div><div class="v" style="color:${colorFor(avg4,15)}">${avg4!=null?avg4+"%":"—"}</div></div>
+      <div class="sc"><div class="l">Best day</div><div class="v" style="color:var(--green)">${bestDay.top10HitRate}%<div style="font-size:10px;color:var(--dim);font-weight:400">${bestDay.date}</div></div></div>
+      <div class="sc"><div class="l">Worst day</div><div class="v" style="color:var(--red)">${worstDay.top10HitRate}%<div style="font-size:10px;color:var(--dim);font-weight:400">${worstDay.date}</div></div></div>
     </div>`;
   }
 
@@ -1757,10 +1747,50 @@ function renderLineup() {
   el.innerHTML = h;
 }
 
+function myPlaysPeriodStats(history) {
+  if (!history || !history.length) return { wtd: null, mtd: null, ytd: null };
+  const today = logicalToday();
+  const year = today.split("-")[0];
+  const month = today.split("-")[1];
+  const now = nowET();
+  const dayOfWeek = now.getDay();
+  const weekStart = new Date(now);
+  weekStart.setDate(weekStart.getDate() - dayOfWeek);
+  const weekStartStr = weekStart.toLocaleDateString("en-CA");
+
+  const calc = (days) => {
+    const valid = days.filter(d => d.hitRate != null);
+    if (!valid.length) return null;
+    // Weight by play count (12 plays one day matters more than 2 plays another)
+    const totalPlays = valid.reduce((s, d) => s + (d.played || 0), 0);
+    const totalHits = valid.reduce((s, d) => s + Math.round((d.hitRate / 100) * (d.played || 0)), 0);
+    const hitRate = totalPlays > 0 ? Math.round(totalHits / totalPlays * 1000) / 10 : null;
+    const avgDiff = Math.round(valid.reduce((s, d) => s + (d.avgDiff || 0), 0) / valid.length * 100) / 100;
+    return { hitRate, avgDiff, days: valid.length, plays: totalPlays };
+  };
+  // Exclude today (today is shown in the live counter above)
+  const wtdDays = history.filter(d => d.date >= weekStartStr && d.date < today);
+  const mtdDays = history.filter(d => d.date.startsWith(year + "-" + month) && d.date < today);
+  const ytdDays = history.filter(d => d.date.startsWith(year) && d.date < today);
+  return { wtd: calc(wtdDays), mtd: calc(mtdDays), ytd: calc(ytdDays) };
+}
+
 function renderPlaysHistory() {
   if (!MY_PLAYS_HISTORY.length) return '';
   const valid = MY_PLAYS_HISTORY.filter(d => d.hitRate != null);
   let h = '<div style="margin-top:1.5rem"><div class="section-title" style="display:flex;align-items:center;justify-content:space-between">My Plays History <button class="btn btn-sm" onclick="clearPlaysHistory()" style="color:var(--red);font-size:10px">Clear All</button></div>';
+
+  // WTD / MTD / YTD tracker (parallel to the system's tracker on Top Plays tab)
+  const ps = myPlaysPeriodStats(MY_PLAYS_HISTORY);
+  if (ps.wtd || ps.mtd || ps.ytd) {
+    h += '<div class="sg" style="margin-bottom:.75rem">';
+    if (ps.wtd) h += `<div class="sc"><div class="l">WTD My Plays</div><div class="v" style="color:${ps.wtd.hitRate>=60?'var(--green)':ps.wtd.hitRate>=40?'var(--amber)':'var(--red)'}">${ps.wtd.hitRate}%</div><div style="font-size:10px;color:var(--dim)">${ps.wtd.plays} plays · diff ${ps.wtd.avgDiff>=0?"+":""}${ps.wtd.avgDiff}</div></div>`;
+    if (ps.mtd) h += `<div class="sc"><div class="l">MTD My Plays</div><div class="v" style="color:${ps.mtd.hitRate>=60?'var(--green)':ps.mtd.hitRate>=40?'var(--amber)':'var(--red)'}">${ps.mtd.hitRate}%</div><div style="font-size:10px;color:var(--dim)">${ps.mtd.plays} plays · diff ${ps.mtd.avgDiff>=0?"+":""}${ps.mtd.avgDiff}</div></div>`;
+    if (ps.ytd) h += `<div class="sc"><div class="l">YTD My Plays</div><div class="v" style="color:${ps.ytd.hitRate>=60?'var(--green)':ps.ytd.hitRate>=40?'var(--amber)':'var(--red)'}">${ps.ytd.hitRate}%</div><div style="font-size:10px;color:var(--dim)">${ps.ytd.plays} plays · diff ${ps.ytd.avgDiff>=0?"+":""}${ps.ytd.avgDiff}</div></div>`;
+    h += '</div>';
+  }
+
+  // All-time totals
   if (valid.length >= 1) {
     const avgHitRate = Math.round(valid.reduce((s,d) => s + d.hitRate, 0) / valid.length * 10) / 10;
     const avgDiff = Math.round(valid.reduce((s,d) => s + (d.avgDiff||0), 0) / valid.length * 100) / 100;
@@ -1768,7 +1798,7 @@ function renderPlaysHistory() {
     h += `<div class="sg" style="margin-bottom:.5rem">
       <div class="sc"><div class="l">Days</div><div class="v">${MY_PLAYS_HISTORY.length}</div></div>
       <div class="sc"><div class="l">Total Plays</div><div class="v">${totalPlays}</div></div>
-      <div class="sc"><div class="l">Avg Hit Rate</div><div class="v" style="color:${avgHitRate>=50?'var(--green)':'var(--amber)'}">${avgHitRate}%</div></div>
+      <div class="sc"><div class="l">All-Time Hit Rate</div><div class="v" style="color:${avgHitRate>=50?'var(--green)':'var(--amber)'}">${avgHitRate}%</div></div>
       <div class="sc"><div class="l">Avg Diff</div><div class="v" style="color:${avgDiff>=0?'var(--green)':'var(--red)'}">${avgDiff>=0?"+":""}${avgDiff}</div></div>
     </div>`;
   }
