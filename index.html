@@ -299,6 +299,8 @@ let DATA = null, LIVE = {}, SK = "pickScore", SD = -1, liveTimer = null, AP = "t
 
 const $ = id => document.getElementById(id);
 const fmt = (n,d=2) => ((n)||0).toFixed(d);
+// HRR display: round to integer, expose precise float on hover (v8)
+const fmtHRR = n => `<span data-tip="${(n||0).toFixed(2)}">${Math.round(n||0)}</span>`;
 const chip = t => `<span class="chip">${t||"?"}</span>`;
 const hot = h => h ? '<span class="htag">HOT</span>' : "";
 const streakTag = t => t==="hot"?'<span class="htag">🔥HOT</span>':t==="warm"?'<span style="font-size:9px;background:rgba(245,158,11,.15);color:var(--amber);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700">WARM</span>':t==="cold"?'<span style="font-size:9px;background:var(--bbg);color:var(--blue);padding:1px 4px;border-radius:3px;margin-left:3px;font-family:var(--mono);font-weight:700">❄COLD</span>':t==="cool"?'<span style="font-size:9px;background:var(--bbg);color:var(--blue);padding:1px 4px;border-radius:3px;margin-left:3px;font-weight:700;font-family:var(--mono)">COOL</span>':"";
@@ -338,8 +340,8 @@ const TIPS = {
   "R Proj":"Projected runs component of HRR",
   "RBI":"Projected RBI component of HRR",
   "RBI Proj":"Projected RBI component of HRR",
-  "HRR":"Hits + Runs + RBI projection. Core model score",
-  "Proj HRR":"Hits + Runs + RBI projection. Core model score",
+  "HRR":"Hits + Runs + RBI projection. Core model score (rounded to integer; hover for precise float)",
+  "Proj HRR":"Hits + Runs + RBI projection. Core model score (rounded to integer; hover for precise float)",
   "Tier":"A (≥3.20) = top play, B (2.50-3.19) = solid, C (<2.50) = below avg",
   "Actual":"Actual H+R+RBI from completed game",
   "Result":"Whether actual HRR met or exceeded the rounded projection",
@@ -408,7 +410,7 @@ function showPlayer(name, team) {
   const playProb = p.playProbability != null ? p.playProbability : null;
   const playColor = playProb == null ? 'var(--muted)' : playProb >= 0.85 ? 'var(--green)' : playProb >= 0.70 ? 'var(--amber)' : 'var(--red)';
   h += '<div class="pp-grid">';
-  h += `<div class="pp-stat"><div class="l">HRR</div><div class="v" style="color:${p.tier==='A'?'var(--green)':p.tier==='B'?'var(--amber)':'var(--muted)'}">${fmt(p.hrr)}</div></div>`;
+  h += `<div class="pp-stat"><div class="l">HRR</div><div class="v" style="color:${p.tier==='A'?'var(--green)':p.tier==='B'?'var(--amber)':'var(--muted)'}">${fmtHRR(p.hrr)}</div></div>`;
   h += `<div class="pp-stat"><div class="l">Data Conf</div><div class="v" style="color:${confColor}">${p.dataConfidence||p.confidence||'—'}</div></div>`;
   h += `<div class="pp-stat"><div class="l">Play Prob</div><div class="v" style="color:${playColor}">${playProb!=null?(playProb*100).toFixed(0)+'%':'—'}</div></div>`;
   h += `<div class="pp-stat"><div class="l">Pick Score</div><div class="v">${p.pickScore?fmt(p.pickScore):'—'}</div></div>`;
@@ -676,7 +678,16 @@ async function loadTop10Results() {
 }
 
 function renderTop() {
-  const top10 = DATA.dailyTop10 || (DATA.allPlayers||[]).slice(0,10);
+  const top10raw = DATA.dailyTop10 || (DATA.allPlayers||[]).slice(0,10);
+  // v8: Blended rank — 50/50 normalized confidence + pickScore
+  const maxConf = Math.max(...top10raw.map(p => p.dataConfidence ?? p.confidence ?? 0), 1);
+  const maxPick = Math.max(...top10raw.map(p => p.pickScore ?? 0), 1);
+  const blendedScore = (p) => {
+    const c = (p.dataConfidence ?? p.confidence ?? 0) / maxConf;
+    const s = (p.pickScore ?? 0) / maxPick;
+    return c * 0.5 + s * 0.5;
+  };
+  const top10 = [...top10raw].sort((a, b) => blendedScore(b) - blendedScore(a));
   const realPlayers = top10.filter(p => !p.isTBD && p.name !== "Lineup TBD");
   const cA = realPlayers.filter(p=>p.tier==="A").length;
   const cB = realPlayers.filter(p=>p.tier==="B").length;
@@ -693,7 +704,7 @@ function renderTop() {
     <div class="sc" style="animation:fadeUp .4s ease-out 0s both"><div class="l">Today's Picks</div><div class="v">${realPlayers.length}</div></div>
     <div class="sc" style="animation:fadeUp .4s ease-out .05s both"><div class="l">Avg Confidence</div><div class="v" style="color:${avgConf>=9?'var(--green)':avgConf>=7?'var(--amber)':'var(--red)'}">${avgConf}</div></div>
     <div class="sc" style="animation:fadeUp .4s ease-out .1s both"><div class="l">Completed</div><div class="v" style="color:${done>=realPlayers.length&&realPlayers.length>0?"var(--green)":done>0?"var(--amber)":"var(--muted)"}">${done}/${realPlayers.length}</div></div>
-    <div class="sc" style="animation:fadeUp .4s ease-out .15s both"><div class="l">Top HRR</div><div class="v">${realPlayers.length?fmt(realPlayers[0]?.hrr):"—"}</div></div>
+    <div class="sc" style="animation:fadeUp .4s ease-out .15s both"><div class="l">Top HRR</div><div class="v">${realPlayers.length?fmtHRR(realPlayers[0]?.hrr):"—"}</div></div>
     <div class="sc" style="animation:fadeUp .4s ease-out .2s both"><div class="l">Lineups</div><div class="v" style="color:${gamesWithLineups===totalGames?'var(--green)':gamesWithLineups>0?'var(--amber)':'var(--muted)'}">${gamesWithLineups}/${totalGames}</div></div>
   </div>`;
 
@@ -760,7 +771,7 @@ function renderTop() {
       <td class="n" style="color:var(--green)">${fmt(bd.h)}</td>
       <td class="n" style="color:var(--blue)">${fmt(bd.r)}</td>
       <td class="n" style="color:var(--amber)">${fmt(bd.rbi)}</td>
-      <td class="n" style="font-size:14px;font-weight:700">${fmt(p.hrr)} <span style="font-size:10px;color:var(--muted)">(${Math.round(p.hrr)})</span></td>
+      <td class="n" style="font-size:14px;font-weight:700">${fmtHRR(p.hrr)}</td>
       <td class="n" style="font-size:12px;color:var(--muted)">${p.pickScore?fmt(p.pickScore):"—"}</td>
       <td class="n">${isFinal&&res?res.actual:"—"}</td>
       <td>${resultCell}</td>
@@ -780,7 +791,7 @@ function renderTop() {
     const isFinal = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Final";
     const isLive  = gm?.gamePk && LIVE[gm?.gamePk]?.status?.abstractGameState === "Live";
     let cardBorder = "var(--border)";
-    let hrrDisplay = fmt(p.hrr);
+    let hrrDisplay = fmtHRR(p.hrr);
     let resultLine = "";
     if (isFinal && res) {
       const hit = res.actual >= Math.round(p.hrr);
@@ -811,7 +822,7 @@ function renderTop() {
   if (corrWarns.length) {
     corrWarns.forEach(w => { h += `<div class="lu-warn">${w}</div>`; });
   }
-  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><div class="note">Filtered by confidence ≥ 9.0 · Ranked by pick score · Keys: 1-8 switch tabs, / search</div><button class="btn" onclick="sharePicks()" style="white-space:nowrap">📤 Share</button></div>';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><div class="note">Filtered by confidence ≥ 9.0 · Ranked by confidence + pick score · Keys: 1-8 switch tabs, / search</div><button class="btn" onclick="sharePicks()" style="white-space:nowrap">📤 Share</button></div>';
 
   // Previously Considered section
   const considered = DATA.consideredToday || [];
@@ -847,7 +858,7 @@ function renderTop() {
         <td style="color:var(--muted);font-size:12px">${p.pos}</td>
         <td style="font-size:12px;color:var(--muted)">${sp?sp.name:"—"}</td>
         <td>${sp?handTag(sp.hand):""}</td>
-        <td class="n" style="color:var(--muted)">${fmt(p.hrr)} <span style="font-size:10px;color:var(--dim)">(${Math.round(p.hrr)})</span></td>
+        <td class="n" style="color:var(--muted)">${fmtHRR(p.hrr)}</td>
         <td class="n">${isFinal&&res?res.actual:"—"}</td>
         <td>${resultCell}</td>
       </tr>`;
@@ -900,7 +911,7 @@ function renderSlate() {
           <span class="lsub ${nc}">${fmt(bd.h)}</span>
           <span class="lsub ${nc}">${fmt(bd.r)}</span>
           <span class="lsub ${nc}">${fmt(bd.rbi)}</span>
-          <span class="lsub ${nc}">${fmt(p.hrr)}</span>
+          <span class="lsub ${nc}">${fmtHRR(p.hrr)}</span>
         </div>`;
       });
       return t;
@@ -1041,7 +1052,7 @@ function applyFilters() {
       <td class="n" style="color:var(--green)">${fmt(p.hProj)}</td>
       <td class="n" style="color:var(--blue)">${fmt(p.rProj)}</td>
       <td class="n" style="color:var(--amber)">${fmt(p.rbiProj)}</td>
-      <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
+      <td class="n" style="font-weight:700">${fmtHRR(p.hrr)}</td>
       <td class="n" style="color:var(--muted)">${p.pickScore?fmt(p.pickScore):"—"}</td>
       <td>${tierB(p.tier)}</td>
       <td><input type="checkbox" ${isChecked?"checked":""} onchange="toggleCompare(\`${p.name}\`,\`${p.team}\`)" title="Compare" style="cursor:pointer"></td>
@@ -1055,7 +1066,7 @@ function applyFilters() {
   all.forEach((p,idx)=>{
     const tc = p.tier==="A"?"var(--green)":p.tier==="B"?"var(--amber)":"var(--muted)";
     h += `<div class="mob-card" style="animation:fadeUp .3s ease-out ${Math.min(idx*.02,.4)}s both">
-      <div class="mc-top"><div><span class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)" style="font-weight:700;color:${tc}">${p.name}</span>${streakTag(p.streakType)} <span class="chip">${p.team}</span></div><div style="font-weight:700;font-family:var(--mono);font-size:15px">${fmt(p.hrr)}</div></div>
+      <div class="mc-top"><div><span class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)" style="font-weight:700;color:${tc}">${p.name}</span>${streakTag(p.streakType)} <span class="chip">${p.team}</span></div><div style="font-weight:700;font-family:var(--mono);font-size:15px">${fmtHRR(p.hrr)}</div></div>
       <div class="mc-stats">
         <div class="mc-stat"><div class="l">Conf</div><div class="v">${confBar(p.confidence)}</div></div>
         <div class="mc-stat"><div class="l">Pick</div><div class="v">${p.pickScore?fmt(p.pickScore):"—"}</div></div>
@@ -1087,7 +1098,7 @@ function renderStacks() {
     list.forEach((s,i)=>{
       const pl = s.players.map(p=>{
         const c=p.tier==="A"?"var(--green)":p.tier==="B"?"var(--amber)":"var(--text)";
-        return `<span style="color:${c}">${p.name} <span class="n" style="font-size:11px;color:var(--muted)">${fmt(p.hrr)}</span></span>`;
+        return `<span style="color:${c}">${p.name} <span class="n" style="font-size:11px;color:var(--muted)" data-tip="${(p.hrr||0).toFixed(2)}">${Math.round(p.hrr||0)}</span></span>`;
       }).join('<span style="color:var(--dim);margin:0 3px">+</span>');
       h+=`<div class="scard"><span class="srank">${i+1}</span>
         <div style="min-width:65px">${chip(s.team)}<div style="font-size:10px;color:var(--dim);margin-top:2px">vs ${s.opp} · ${s.time}${s.impliedRuns?' · <span style="color:var(--amber)">'+s.impliedRuns.toFixed(1)+' impl</span>':""}</div>${s.adjacencyBonus>0?'<div style="font-size:9px;color:var(--green);margin-top:1px">+'+s.adjacencyBonus.toFixed(2)+' adj bonus</div>':""}</div>
@@ -1106,7 +1117,7 @@ function renderGameStacks() {
   gs.forEach((s, i) => {
     const pl = s.players.map(p => {
       const c = p.team === s.away ? "var(--blue)" : "var(--amber)";
-      return `<span style="color:${c}">${p.name} <span class="n" style="font-size:10px;color:var(--dim)">${p.team} ${fmt(p.hrr)}</span></span>`;
+      return `<span style="color:${c}">${p.name} <span class="n" style="font-size:10px;color:var(--dim)">${p.team} ${Math.round(p.hrr||0)}</span></span>`;
     }).join('<span style="color:var(--dim);margin:0 3px">+</span>');
     h += `<div class="scard"><span class="srank">${i + 1}</span>
       <div style="min-width:65px"><span style="font-weight:700">${s.away} @ ${s.home}</span><div style="font-size:10px;color:var(--dim);margin-top:2px">${s.time} · O/U ${s.total} · <span style="color:${s.envScore>=7?'var(--green)':s.envScore>=4?'var(--amber)':'var(--blue)'}">ENV ${s.envScore}</span></div></div>
@@ -1240,7 +1251,7 @@ function toggleHistoryDay(card) {
       <td style="font-weight:500">${p.name}</td>
       <td>${chip(p.team)}</td>
       <td style="color:var(--muted);font-size:12px">${p.pos||"—"}</td>
-      <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
+      <td class="n" style="font-weight:700">${fmtHRR(p.hrr)}</td>
       <td class="n">${actualCell}</td>
       <td style="text-align:center;font-family:var(--mono);font-size:13px;letter-spacing:3px">${dot(h1)}${dot(h2)}${dot(h3)}${dot(h4)}</td>
       <td>${tierB(p.tier)}</td>
@@ -1464,7 +1475,7 @@ async function renderResults() {
       <td>${r.tier?tierB(r.tier):'<span class="tc">—</span>'}</td>
       <td class="n">${r.hits}</td><td class="n">${r.runs}</td><td class="n">${r.rbi}</td>
       <td class="n" style="font-size:15px;font-weight:700;color:${r.actual>=3?"var(--green)":r.actual>=2?"var(--amber)":"var(--muted)"}">${r.actual}</td>
-      <td class="n">${r.proj!==null?fmt(r.proj):"—"}</td>
+      <td class="n">${r.proj!==null?fmtHRR(r.proj):"—"}</td>
       <td class="n ${dc}">${ds}</td></tr>`;
   });}
   h+='</tbody></table></div>';
@@ -1739,7 +1750,7 @@ function renderLineup() {
     }
     h += `<div class="lu-card" style="${cardBg}animation-delay:${i*.03}s">
       <div><span style="color:${tc};font-weight:700" class="plink" onclick="showPlayer(\`${p.name}\`,\`${p.team}\`)">${p.name}</span> <span class="chip">${p.team}</span> <span style="font-size:10px;color:var(--dim)">${p.pos} #${p.order}</span>${resultBlock}</div>
-      <div style="display:flex;align-items:center;gap:8px"><span style="font-weight:700;font-family:var(--mono)">${fmt(p.hrr)}</span>${confBar(p.confidence)}<button class="lu-rm" onclick="removeFromLineup(\`${p.name}\`,\`${p.team}\`)" title="Remove">✕</button></div>
+      <div style="display:flex;align-items:center;gap:8px"><span style="font-weight:700;font-family:var(--mono)" data-tip="${(p.hrr||0).toFixed(2)}">${Math.round(p.hrr||0)}</span>${confBar(p.confidence)}<button class="lu-rm" onclick="removeFromLineup(\`${p.name}\`,\`${p.team}\`)" title="Remove">✕</button></div>
     </div>`;
   });
 
@@ -1865,7 +1876,7 @@ function togglePlaysHistoryDay(card) {
       <td>${chip(p.team)}</td>
       <td style="color:var(--muted);font-size:12px">${p.pos||"—"}</td>
       <td>${confBar(p.confidence)}</td>
-      <td class="n" style="font-weight:700">${fmt(p.hrr)}</td>
+      <td class="n" style="font-weight:700">${fmtHRR(p.hrr)}</td>
       <td class="n" style="text-align:center">${p.ab||0}</td>
       <td class="n" style="font-weight:700">${p.actual!=null?p.actual:"—"}</td>
       <td>${resultCell}</td>
@@ -1979,7 +1990,7 @@ function sharePicks() {
     ctx.font = "bold 12px -apple-system, sans-serif"; ctx.fillText(p.name, 36, y);
     ctx.fillStyle = "#71717a"; ctx.font = "11px -apple-system, sans-serif"; ctx.fillText(p.team, 240, y);
     ctx.fillStyle = (p.confidence||0) >= 9 ? "#10b981" : "#f59e0b"; ctx.fillText((p.confidence||0).toFixed(1), 300, y);
-    ctx.fillStyle = "#e4e4e7"; ctx.font = "bold 13px monospace"; ctx.fillText(fmt(p.hrr), 360, y);
+    ctx.fillStyle = "#e4e4e7"; ctx.font = "bold 13px monospace"; ctx.fillText(Math.round(p.hrr||0), 360, y);
     ctx.fillStyle = "#71717a"; ctx.font = "11px monospace"; ctx.fillText(p.pickScore?fmt(p.pickScore):"—", 420, y);
   });
 
