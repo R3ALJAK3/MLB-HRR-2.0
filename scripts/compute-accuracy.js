@@ -1,27 +1,18 @@
 #!/usr/bin/env node
 /**
- * compute-accuracy.js — Nightly accuracy calculation
- * ───────────────────────────────────────────────────
- * Runs separately from generate-hrr.js to fix the silent-failure problem
- * where one bad accuracy calc per day = permanent data loss.
+ * compute-accuracy.js v8 — threshold ladder
+ * ──────────────────────────────────────────
+ * v7 emitted a single hit rate based on `actual >= round(projected)`.
+ * That metric is noisy and tied to where the projection happens to fall.
  *
- * Schedule: 4 AM, 5 AM, 6 AM ET (3 retries via cron)
- * The first run that finds yesterday is unprocessed will process it.
- * Subsequent runs detect "already processed" and exit cleanly.
+ * v8 adds a fixed threshold ladder so each pick is graded against
+ * sportsbook-style integer thresholds (HRR ≥ 1, ≥ 2, ≥ 3, ≥ 4).
+ * The ≥2 rate is the headline metric — separates productive games
+ * from quiet ones with manageable variance.
  *
- * Architecture:
- *   - Reads yesterday's snapshot from snapshots/{date}.json (history Gist)
- *   - Fetches all final boxscores for yesterday
- *   - Computes hit rates with played-filter (separate DNP tracking)
- *   - Appends to accuracy-history.json (history Gist)
+ * v7 metrics are preserved unchanged for backward compatibility.
  *
- * Uses TWO Gists:
- *   - LIVE Gist (GIST_ID): for daily snapshots (read-write)
- *   - HISTORY Gist (GIST_ID_HISTORY): for accumulated history (write)
- *
- * If GIST_ID_HISTORY is not set, falls back to using LIVE Gist for both
- * (Option 1 mode). This keeps the script working even before you set up
- * the second Gist.
+ * Schedule: 4/5/6 AM ET via cron (idempotent — first success wins)
  */
 
 import { Octokit } from "@octokit/rest";
@@ -30,7 +21,10 @@ import { yesterdayET, fetchBoxscoresForDate, normName } from "./lib/shared.js";
 const HISTORY_FILE = "accuracy-history.json";
 const HISTORY_RETENTION_DAYS = 90;
 
-// ── Gist read/write helpers ───────────────────────────
+// Threshold ladder — the integer bars each pick is graded against
+const THRESHOLDS = [1, 2, 3, 4];
+
+// ── Gist read/write ──────────────────────────────────────
 async function readGistFile(octokit, gistId, filename) {
   try {
     const res = await octokit.gists.get({ gist_id: gistId });
@@ -51,17 +45,14 @@ async function writeGistFile(octokit, gistId, filename, data) {
   console.log(`  Wrote ${filename} to gist ${gistId}`);
 }
 
-// ── Find the snapshot for yesterday ───────────────────
+// ── Find snapshot ────────────────────────────────────────
 async function loadYesterdaySnapshot(octokit, liveGistId, historyGistId, dateStr) {
-  // Try history Gist first (snapshots/YYYY-MM-DD.json)
   const snapshotName = `snapshot-${dateStr}.json`;
   let snapshot = await readGistFile(octokit, historyGistId, snapshotName);
   if (snapshot) {
     console.log(`  Loaded snapshot from history gist: ${snapshotName}`);
     return snapshot;
   }
-
-  // Fall back to live gist (legacy: hrr-data.json with date matching)
   const liveData = await readGistFile(octokit, liveGistId, "hrr-data.json");
   if (liveData && liveData.date === dateStr && liveData.dailyTop10?.length) {
     console.log(`  Loaded snapshot from live gist (legacy fallback)`);
@@ -72,22 +63,18 @@ async function loadYesterdaySnapshot(octokit, liveGistId, historyGistId, dateStr
       consideredToday: liveData.consideredToday || [],
     };
   }
-
   return null;
 }
 
-// ── Match player from snapshot to boxscore results ────
+// ── Match snapshot pick to boxscore result ───────────────
 function findActual(boxscoreResults, name, team) {
   const exactKey = `${name}_${team}`;
   if (boxscoreResults[exactKey]) return boxscoreResults[exactKey];
-
-  // Fuzzy match by normalized name + team
   const normTarget = normName(name);
   for (const [key, val] of Object.entries(boxscoreResults)) {
     const [bname, bteam] = key.split("_");
     if (bteam === team && normName(bname) === normTarget) return val;
   }
-  // Last resort: name only (handles team trade mid-day)
   for (const [key, val] of Object.entries(boxscoreResults)) {
     const [bname] = key.split("_");
     if (normName(bname) === normTarget) return val;
@@ -95,81 +82,140 @@ function findActual(boxscoreResults, name, team) {
   return null;
 }
 
-// ── Compute accuracy for a snapshot ───────────────────
+// ── Threshold ladder calc for a population ───────────────
+// Returns { played, dnp, total, byThreshold: { 1: { hits, rate }, 2: ... } }
+function ladderFor(picks, results) {
+  const played = [];
+  let dnp = 0;
+  for (const p of picks) {
+    const actual = findActual(results, p.name, p.team);
+    if (!actual || !actual.played) { dnp++; continue; }
+    played.push({ pick: p, result: actual });
+  }
+  const byThreshold = {};
+  for (const t of THRESHOLDS) {
+    const hits = played.filter(({ result }) => result.actual >= t).length;
+    const rate = played.length > 0 ? Math.round(hits / played.length * 1000) / 10 : null;
+    byThreshold[t] = { hits, rate };
+  }
+  return { played: played.length, dnp, total: picks.length, byThreshold, playedDetail: played };
+}
+
+// ── Compute accuracy for a snapshot ──────────────────────
 function computeAccuracy(snapshot, boxscoreData) {
   const { results, gamesScheduled, gamesFinal, gamesProcessed } = boxscoreData;
 
-  // ── Top 10 hit rate (played-filter applied) ──
   const top10 = (snapshot.dailyTop10 || []).filter(p => p.name && p.name !== "Lineup TBD" && !p.isTBD);
-  let top10Hits = 0, top10Played = 0, top10DNP = 0;
-  const top10Diffs = [];
-  const top10Detailed = [];
+  const allPlayers = (snapshot.allPlayers || []).filter(p => p.name && p.name !== "Lineup TBD" && !p.isTBD);
 
+  // ── Top 10 ladder ──
+  const top10Ladder = ladderFor(top10, results);
+
+  // ── v7-compat metric: actual ≥ rounded(proj) ──
+  let v7Hits = 0;
+  const v7Diffs = [];
+  const top10Detailed = [];
   for (const p of top10) {
     const actual = findActual(results, p.name, p.team);
     if (!actual) {
-      top10DNP++;
       top10Detailed.push({ ...summarizePick(p), actual: null, played: false, reason: "no_boxscore" });
       continue;
     }
     if (!actual.played) {
-      top10DNP++;
       top10Detailed.push({ ...summarizePick(p), actual: actual.actual, played: false, atBats: actual.atBats, reason: "no_pa" });
       continue;
     }
-    top10Played++;
     const hit = actual.actual >= Math.round(p.hrr);
-    if (hit) top10Hits++;
-    top10Diffs.push(actual.actual - p.hrr);
-    top10Detailed.push({ ...summarizePick(p), actual: actual.actual, played: true, atBats: actual.atBats, hit });
+    if (hit) v7Hits++;
+    v7Diffs.push(actual.actual - p.hrr);
+    // Per-pick threshold flags so the dashboard can show a ladder per pick
+    const thresholdHits = {};
+    for (const t of THRESHOLDS) thresholdHits[t] = actual.actual >= t;
+    top10Detailed.push({
+      ...summarizePick(p),
+      actual: actual.actual,
+      played: true,
+      atBats: actual.atBats,
+      hit,
+      thresholdHits,
+    });
   }
 
-  // ── Tier accuracy (played-filter applied) ──
-  const allPlayers = (snapshot.allPlayers || []).filter(p => p.name && p.name !== "Lineup TBD" && !p.isTBD);
-  let tierAHits = 0, tierATotal = 0, tierBHits = 0, tierBTotal = 0;
-  for (const p of allPlayers) {
-    const actual = findActual(results, p.name, p.team);
-    if (!actual || !actual.played) continue;
-    if (p.tier === "A") {
-      tierATotal++;
-      if (actual.actual >= Math.round(p.hrr)) tierAHits++;
-    } else if (p.tier === "B") {
-      tierBTotal++;
-      if (actual.actual >= Math.round(p.hrr)) tierBHits++;
-    }
-  }
-
-  const top10HitRate = top10Played > 0 ? Math.round((top10Hits / top10Played) * 1000) / 10 : null;
-  const top10AvgDiff = top10Diffs.length > 0
-    ? Math.round(top10Diffs.reduce((a, b) => a + b, 0) / top10Diffs.length * 100) / 100
+  const top10HitRate = top10Ladder.played > 0 ? Math.round(v7Hits / top10Ladder.played * 1000) / 10 : null;
+  const top10AvgDiff = v7Diffs.length > 0
+    ? Math.round(v7Diffs.reduce((a, b) => a + b, 0) / v7Diffs.length * 100) / 100
     : null;
-  const top10DNPRate = top10.length > 0 ? Math.round((top10DNP / top10.length) * 1000) / 10 : null;
+  const top10DNPRate = top10.length > 0
+    ? Math.round((top10Ladder.dnp / top10.length) * 1000) / 10
+    : null;
+
+  // ── Tier ladders (played-filter applied) ──
+  const tierAPlayers = allPlayers.filter(p => p.tier === "A");
+  const tierBPlayers = allPlayers.filter(p => p.tier === "B");
+  const tierALadder = ladderFor(tierAPlayers, results);
+  const tierBLadder = ladderFor(tierBPlayers, results);
+
+  // v7 tier compat (actual ≥ rounded proj)
+  const tierHitsCount = (players) => {
+    let hits = 0, total = 0;
+    for (const p of players) {
+      const a = findActual(results, p.name, p.team);
+      if (!a || !a.played) continue;
+      total++;
+      if (a.actual >= Math.round(p.hrr)) hits++;
+    }
+    return total > 0 ? Math.round(hits / total * 1000) / 10 : null;
+  };
 
   return {
     date: snapshot.date,
     computedAt: new Date().toISOString(),
 
-    // Headline metrics (with played-filter)
+    // ─── v7-compatible headline metrics (PRESERVED) ───
     top10HitRate,
     top10AvgDiff,
-    tierAHitRate: tierATotal > 0 ? Math.round((tierAHits / tierATotal) * 1000) / 10 : null,
-    tierBHitRate: tierBTotal > 0 ? Math.round((tierBHits / tierBTotal) * 1000) / 10 : null,
-
-    // Diagnostic metrics — these are the new ones that catch the
-    // "9.4 confidence → 0 actual" pattern
-    top10Played,
-    top10DNP,
-    top10DNPRate,                      // % of top picks who didn't get a PA
+    top10Played: top10Ladder.played,
+    top10DNP: top10Ladder.dnp,
+    top10DNPRate,
     top10Total: top10.length,
-    tierAPlayed: tierATotal,
-    tierBPlayed: tierBTotal,
+    tierAHitRate: tierHitsCount(tierAPlayers),
+    tierBHitRate: tierHitsCount(tierBPlayers),
+    tierAPlayed: tierALadder.played,
+    tierBPlayed: tierBLadder.played,
 
+    // ─── v8 NEW: threshold ladder (HEADLINE = top10ThresholdRates[2]) ───
+    top10ThresholdRates: {
+      1: top10Ladder.byThreshold[1].rate,
+      2: top10Ladder.byThreshold[2].rate,   // ← primary metric
+      3: top10Ladder.byThreshold[3].rate,
+      4: top10Ladder.byThreshold[4].rate,
+    },
+    top10ThresholdHits: {
+      1: top10Ladder.byThreshold[1].hits,
+      2: top10Ladder.byThreshold[2].hits,
+      3: top10Ladder.byThreshold[3].hits,
+      4: top10Ladder.byThreshold[4].hits,
+    },
+    tierAThresholdRates: {
+      1: tierALadder.byThreshold[1].rate,
+      2: tierALadder.byThreshold[2].rate,
+      3: tierALadder.byThreshold[3].rate,
+      4: tierALadder.byThreshold[4].rate,
+    },
+    tierBThresholdRates: {
+      1: tierBLadder.byThreshold[1].rate,
+      2: tierBLadder.byThreshold[2].rate,
+      3: tierBLadder.byThreshold[3].rate,
+      4: tierBLadder.byThreshold[4].rate,
+    },
+
+    // Game/player counts
     gamesScheduled,
     gamesCompleted: gamesFinal,
     gamesProcessed,
     totalPlayers: allPlayers.length,
 
-    // Compact top 10 with actual results — same shape as legacy
+    // Detailed top 10 (with per-pick threshold flags)
     top10: top10Detailed,
   };
 }
@@ -188,7 +234,7 @@ function summarizePick(p) {
   };
 }
 
-// ── Main ──────────────────────────────────────────────
+// ── Main ─────────────────────────────────────────────────
 async function main() {
   const missing = ["GIST_ID", "GITHUB_TOKEN"].filter(v => !process.env[v]);
   if (missing.length) {
@@ -203,67 +249,68 @@ async function main() {
 
   const targetDate = process.env.ACCURACY_DATE || yesterdayET();
 
-  console.log(`\n=== compute-accuracy.js — target date: ${targetDate} ===`);
+  console.log(`\n=== compute-accuracy.js v8 — target date: ${targetDate} ===`);
   console.log(`Live gist:    ${liveGistId}`);
   console.log(`History gist: ${historyGistId}${sameGist ? " (same as live)" : ""}\n`);
 
-  // ── Step 1: Check if already processed ──
   const history = (await readGistFile(octokit, historyGistId, HISTORY_FILE)) || { entries: [] };
   if (!Array.isArray(history.entries)) history.entries = [];
 
   const alreadyDone = history.entries.find(e => e.date === targetDate);
   if (alreadyDone && !process.env.FORCE_RECOMPUTE) {
-    console.log(`✓ Already processed ${targetDate} (top10HitRate: ${alreadyDone.top10HitRate}%)`);
-    console.log(`  Set FORCE_RECOMPUTE=1 to override`);
-    process.exit(0);
+    // v7 entries don't have top10ThresholdRates — recompute if missing so dashboard ladder works
+    if (!alreadyDone.top10ThresholdRates) {
+      console.log(`  ${targetDate} already processed but missing threshold ladder — recomputing.`);
+    } else {
+      console.log(`✓ Already processed ${targetDate} (HRR≥2 hit rate: ${alreadyDone.top10ThresholdRates[2]}%)`);
+      console.log(`  Set FORCE_RECOMPUTE=1 to override`);
+      process.exit(0);
+    }
   }
 
-  // ── Step 2: Load snapshot ──
   const snapshot = await loadYesterdaySnapshot(octokit, liveGistId, historyGistId, targetDate);
   if (!snapshot) {
     console.error(`✗ No snapshot found for ${targetDate}. Cannot compute accuracy.`);
     console.error(`  Expected: snapshot-${targetDate}.json in history gist OR matching date in live gist.`);
     process.exit(1);
   }
-
   if (!snapshot.dailyTop10?.length) {
     console.error(`✗ Snapshot for ${targetDate} has no dailyTop10. Skipping.`);
     process.exit(0);
   }
 
-  // ── Step 3: Fetch boxscores ──
   const boxscoreData = await fetchBoxscoresForDate(targetDate);
   if (boxscoreData.gamesFinal === 0) {
     console.error(`✗ No final games for ${targetDate}. Will retry on next run.`);
-    process.exit(2);  // exit code 2 → retry-worthy
+    process.exit(2);
   }
 
-  // ── Step 4: Compute ──
   const dayAccuracy = computeAccuracy(snapshot, boxscoreData);
 
   console.log(`\n=== Results for ${targetDate} ===`);
-  console.log(`  Top 10 hit rate (played):     ${dayAccuracy.top10HitRate}% (${dayAccuracy.top10Played}/${dayAccuracy.top10Total} played)`);
-  console.log(`  Top 10 DNP rate:              ${dayAccuracy.top10DNPRate}% (${dayAccuracy.top10DNP} did not play)`);
-  console.log(`  Top 10 avg diff:              ${dayAccuracy.top10AvgDiff >= 0 ? "+" : ""}${dayAccuracy.top10AvgDiff}`);
-  console.log(`  Tier A hit rate:              ${dayAccuracy.tierAHitRate}% (n=${dayAccuracy.tierAPlayed})`);
-  console.log(`  Tier B hit rate:              ${dayAccuracy.tierBHitRate}% (n=${dayAccuracy.tierBPlayed})`);
+  console.log(`  Played: ${dayAccuracy.top10Played}/${dayAccuracy.top10Total}  ·  DNP: ${dayAccuracy.top10DNPRate}%`);
+  console.log(`  Threshold ladder (top 10):`);
+  for (const t of THRESHOLDS) {
+    const rate = dayAccuracy.top10ThresholdRates[t];
+    const hits = dayAccuracy.top10ThresholdHits[t];
+    const marker = t === 2 ? " ← HEADLINE" : "";
+    console.log(`    HRR ≥ ${t}:  ${rate != null ? rate + "%" : "—"}  (${hits}/${dayAccuracy.top10Played})${marker}`);
+  }
+  console.log(`  v7-compat hit rate (actual ≥ round(proj)): ${dayAccuracy.top10HitRate}%`);
+  console.log(`  Avg diff:                                  ${dayAccuracy.top10AvgDiff >= 0 ? "+" : ""}${dayAccuracy.top10AvgDiff}`);
 
-  // Sanity check: warn if DNP rate is unusually high
-  if (dayAccuracy.top10DNPRate && dayAccuracy.top10DNPRate >= 30) {
+  if (dayAccuracy.top10DNPRate >= 30) {
     console.log(`\n  ⚠ HIGH DNP RATE — ${dayAccuracy.top10DNPRate}% of top picks did not play`);
-    console.log(`     This indicates the lineup-prediction or play_probability is too lenient.`);
   }
 
-  // ── Step 5: Append + write ──
-  history.entries = history.entries.filter(e => e.date !== targetDate);  // remove dupes
+  history.entries = history.entries.filter(e => e.date !== targetDate);
   history.entries.push(dayAccuracy);
   history.entries.sort((a, b) => a.date.localeCompare(b.date));
 
-  // Retention
   if (history.entries.length > HISTORY_RETENTION_DAYS) {
     const removed = history.entries.length - HISTORY_RETENTION_DAYS;
     history.entries = history.entries.slice(-HISTORY_RETENTION_DAYS);
-    console.log(`  Pruned ${removed} oldest entries (retention: ${HISTORY_RETENTION_DAYS} days)`);
+    console.log(`  Pruned ${removed} oldest entries`);
   }
 
   history.lastUpdated = new Date().toISOString();
