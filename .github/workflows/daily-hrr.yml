@@ -28,11 +28,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-        working-directory: scripts
 
       - name: Generate HRR data
-        run: node generate-hrr.js
-        working-directory: scripts
+        run: node scripts/generate-hrr.js
         env:
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_ID_HISTORY: ${{ secrets.GIST_ID_HISTORY }}

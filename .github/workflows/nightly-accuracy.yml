@@ -5,9 +5,9 @@ on:
     # 3 retry attempts in case MLB API is slow or boxscores aren't fully posted
     # Times in UTC (ET = UTC - 4 in DST, UTC - 5 in standard)
     # Targeting 4 AM, 5 AM, 6 AM ET — all West Coast games guaranteed final
-    - cron: "0 8 * * *"   # 4 AM ET (DST) / 3 AM ET (standard)
-    - cron: "0 9 * * *"   # 5 AM ET (DST) / 4 AM ET (standard)
-    - cron: "0 10 * * *"  # 6 AM ET (DST) / 5 AM ET (standard)
+    - cron: "0 8 * * *" # 4 AM ET (DST) / 3 AM ET (standard)
+    - cron: "0 9 * * *" # 5 AM ET (DST) / 4 AM ET (standard)
+    - cron: "0 10 * * *" # 6 AM ET (DST) / 5 AM ET (standard)
 
   workflow_dispatch:
     inputs:
@@ -37,11 +37,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-        working-directory: scripts
 
       - name: Compute accuracy for previous day
-        run: node compute-accuracy.js
-        working-directory: scripts
+        run: node scripts/compute-accuracy.js
         env:
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_ID_HISTORY: ${{ secrets.GIST_ID_HISTORY }}
