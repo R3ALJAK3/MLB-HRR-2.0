@@ -5,9 +5,12 @@
   "description": "Daily MLB HRR projection generator using free MLB Stats API",
   "main": "generate-hrr.js",
   "scripts": {
-    "generate": "node generate-hrr.js"
+    "start": "node scripts/generate-hrr.js",
+    "dev": "node -r dotenv/config scripts/generate-hrr.js",
+    "validate": "node -c scripts/generate-hrr.js"
   },
   "dependencies": {
-    "@octokit/rest": "^21.0.0"
+    "@octokit/rest": "^21.0.0",
+    "dotenv": "^17.4.2"
   }
 }
