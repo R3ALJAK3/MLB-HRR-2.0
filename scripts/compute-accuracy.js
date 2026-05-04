@@ -283,7 +283,10 @@ async function main() {
   }
 
   const octokit = new Octokit({ auth: process.env.GIST_TOKEN });
-  const liveGistId = process.env.GIST_ID;
+  const liveGistId =
+    process.env.CI !== "true" && process.env.GIST_ID_DEV
+      ? process.env.GIST_ID_DEV
+      : process.env.GIST_ID;
   const historyGistId = process.env.GIST_ID_HISTORY || liveGistId;
   const sameGist = historyGistId === liveGistId;
 

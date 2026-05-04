@@ -1506,9 +1506,17 @@ async function main() {
   }
 
   const octokit = new Octokit({ auth: process.env.GIST_TOKEN });
-  const liveGistId = process.env.GIST_ID;
-  const historyGistId = process.env.GIST_ID_HISTORY || liveGistId;
 
+  const liveGistId =
+    process.env.CI !== "true" && process.env.GIST_ID_DEV
+      ? process.env.GIST_ID_DEV
+      : process.env.GIST_ID;
+
+  console.log(
+    `>>> Writing to ${liveGistId === process.env.GIST_ID_DEV ? "DEV" : "LIVE"} gist: ${liveGistId}`,
+  );
+
+  const historyGistId = process.env.GIST_ID_HISTORY || liveGistId;
   console.log(`\n=== MLB HRR Generator v7 — ${TODAY_DISPLAY} ===\n`);
 
   await Promise.all([fetchSavantData(), fetchInjuries()]);
