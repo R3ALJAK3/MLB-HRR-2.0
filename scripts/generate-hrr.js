@@ -1424,11 +1424,8 @@ function findOddsLine(game, oddsLines) {
   const away = TEAM_MAP[game.away?.abbr] || "";
   const home = TEAM_MAP[game.home?.abbr] || "";
   if (!away || !home) return null;
-  for (const [key, line] of Object.entries(oddsLines)) {
-    if (key.includes(away) && key.includes(home)) return line;
-  }
-  for (const [key, line] of Object.entries(oddsLines)) {
-    if (key.includes(away) || key.includes(home)) return line;
+  for (const line of Object.values(oddsLines)) {
+    if (line.awayTeam === away && line.homeTeam === home) return line;
   }
   return null;
 }
