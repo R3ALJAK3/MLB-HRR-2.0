@@ -944,9 +944,6 @@ async function getBoxscoreLineup(gamePk, teamId) {
 // ── Build game data ────────────────────────────────────
 async function buildGameData(mlbGames, oddsLines) {
   const games = [];
-  const nowET = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "America/New_York" }),
-  );
 
   // Pre-fetch weather + pitchers in parallel
   const weatherPromises = mlbGames.map((g) => {
@@ -954,7 +951,7 @@ async function buildGameData(mlbGames, oddsLines) {
     const gameDate = new Date(g.gameDate);
     const hoursOut = Math.max(
       0,
-      (gameDate.getTime() - nowET.getTime()) / 3600000,
+      (gameDate.getTime() - Date.now()) / 3600000,
     );
     const gameTime = gameDate.toLocaleTimeString("en-US", {
       hour: "numeric",
@@ -1571,9 +1568,6 @@ async function main() {
   }
 
   // ── Top 10 with split confidence floor + Lever 2 quality gate ──
-  const nowET = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "America/New_York" }),
-  );
 
   // Helper: resolve opposing pitcher for a player (used by passesQualityGate)
   const oppPitcherOf = (p) => {
@@ -1627,7 +1621,7 @@ async function main() {
       const started =
         ep.gamePk &&
         mlbGames.some(
-          (g) => g.gamePk === ep.gamePk && new Date(g.gameDate) < nowET,
+          (g) => g.gamePk === ep.gamePk && new Date(g.gameDate).getTime() < Date.now(),
         );
       return started ? ep : freshMap[ep.name + "_" + ep.team] || ep;
     });
@@ -1643,7 +1637,7 @@ async function main() {
       const started =
         ep.gamePk &&
         mlbGames.some(
-          (g) => g.gamePk === ep.gamePk && new Date(g.gameDate) < nowET,
+          (g) => g.gamePk === ep.gamePk && new Date(g.gameDate).getTime() < Date.now(),
         );
       return (
         started ||
@@ -1656,7 +1650,7 @@ async function main() {
       return (
         ep.gamePk &&
         mlbGames.some(
-          (g) => g.gamePk === ep.gamePk && new Date(g.gameDate) < nowET,
+          (g) => g.gamePk === ep.gamePk && new Date(g.gameDate).getTime() < Date.now(),
         )
       );
     }).length;
