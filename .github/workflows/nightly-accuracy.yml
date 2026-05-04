@@ -43,7 +43,7 @@ jobs:
         env:
           GIST_ID: ${{ secrets.GIST_ID }}
           GIST_ID_HISTORY: ${{ secrets.GIST_ID_HISTORY }}
-          GITHUB_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           ACCURACY_DATE: ${{ inputs.target_date }}
           FORCE_RECOMPUTE: ${{ inputs.force_recompute && '1' || '' }}
 

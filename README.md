@@ -49,7 +49,6 @@ If you've cloned this repo fresh and want to run it locally:
    - `GIST_ID` — ID of your main HRR data gist (the long hex string in the gist URL)
    - `GIST_ID_HISTORY` — ID of your history snapshot gist
    - `GIST_TOKEN` — GitHub PAT with `gist` scope
-   - `GITHUB_TOKEN` — same value as `GIST_TOKEN` (yes, both are needed currently)
    - `ODDS_API_KEY` — your Odds API key
 
 4. Run the pipeline locally:
