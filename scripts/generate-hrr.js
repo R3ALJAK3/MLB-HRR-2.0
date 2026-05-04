@@ -455,11 +455,8 @@ async function getFullPlayerStats(playerId) {
     ];
     for (const ep of splitsEndpoints) {
       try {
-        const res = await fetch(`${MLB}${ep}`);
-        if (res.ok) {
-          splitsRes = await res.json();
-          break;
-        }
+        splitsRes = await mlbFetch(ep);
+        break;
       } catch {
         /* try next */
       }
